@@ -1,0 +1,100 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "description": "Items stored in the warehouse",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Product name" },
+        "code": { "type": "string", "description": "Unique product code" },
+        "category": { "type": "string", "description": "Product category" },
+        "unit": { "type": "string", "description": "Unit of measure (e.g., unit, kg, box)" },
+        "price": { "type": "number", "description": "Unit price" },
+        "currentStock": { "type": "number", "description": "Current quantity in warehouse" },
+        "minStock": { "type": "number", "description": "Minimum stock level for alerts" }
+      },
+      "required": ["name", "code", "currentStock"]
+    },
+    "Supplier": {
+      "title": "Supplier",
+      "description": "External vendors",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "cnpj": { "type": "string" },
+        "contact": { "type": "string" }
+      },
+      "required": ["name"]
+    },
+    "PurchaseOrder": {
+      "title": "Purchase Order",
+      "description": "Orders made to suppliers",
+      "type": "object",
+      "properties": {
+        "supplierId": { "type": "string" },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "productId": { "type": "string" },
+              "quantity": { "type": "number" }
+            }
+          }
+        },
+        "status": { "type": "string", "enum": ["pending", "approved", "received"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Branch": {
+      "title": "Branch",
+      "description": "Retail locations",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "location": { "type": "string" },
+        "manager": { "type": "string" }
+      }
+    },
+    "User": {
+      "title": "User",
+      "description": "System users with roles",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "branch", "logistics"] },
+        "branchId": { "type": "string", "description": "Associated branch if role is branch" }
+      }
+    },
+    "BranchOrder": {
+      "title": "Branch Order",
+      "description": "Requests from branches to the warehouse",
+      "type": "object",
+      "properties": {
+        "branchId": { "type": "string" },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "productId": { "type": "string" },
+              "quantity": { "type": "number" }
+            }
+          }
+        },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected", "picking", "picked", "ready", "shipped"] },
+        "totalValue": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "firestore": {
+    "/products/{productId}": { "schema": "Product", "description": "Warehouse inventory" },
+    "/suppliers/{supplierId}": { "schema": "Supplier", "description": "Vendor list" },
+    "/purchaseOrders/{orderId}": { "schema": "PurchaseOrder", "description": "Incoming stock orders" },
+    "/branches/{branchId}": { "schema": "Branch", "description": "Store locations" },
+    "/users/{userId}": { "schema": "User", "description": "User profiles and roles" },
+    "/branchOrders/{orderId}": { "schema": "BranchOrder", "description": "Outgoing branch requests" }
+  }
+}

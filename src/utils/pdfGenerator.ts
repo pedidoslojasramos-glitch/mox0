@@ -1125,4 +1125,490 @@ export function generateEpiTermPDF(
   doc.save(fileName);
 }
 
+/**
+ * ROMANEIO DE ENVIO & GUIA DE TRANSPORTE DE DISTRIBUIÇÃO EM MASSA POR FILIAL
+ */
+export function generateDistributionRomaneioPDF(
+  distribution: any,
+  branches: Branch[],
+  products: Product[],
+  selectedBranchId: string = 'all',
+  companyLogo?: string
+) {
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4'
+  });
+
+  const distId = (distribution?.id || '').toUpperCase();
+  const allBranchIds = Array.from(
+    new Set(distribution?.items?.flatMap((i: any) => i.quantityPerBranch.map((q: any) => q.branchId)))
+  ) as string[];
+
+  const activeBranchIds = selectedBranchId && selectedBranchId !== 'all'
+    ? allBranchIds.filter(id => id === selectedBranchId)
+    : allBranchIds;
+
+  let pageAdded = false;
+
+  activeBranchIds.forEach((branchId) => {
+    const branch = branches.find(b => b.id === branchId);
+    const recipientName = distribution.recipients?.[branchId] || branch?.manager || 'Gerente / Responsável';
+
+    // Collect items for this branch
+    const branchItems: any[] = [];
+    distribution.items.forEach((item: any) => {
+      const prod = products.find(p => p.id === item.productId);
+      const qInfo = item.quantityPerBranch?.find((q: any) => q.branchId === branchId);
+      if (qInfo && qInfo.quantity > 0) {
+        branchItems.push({
+          code: prod?.code || 'N/A',
+          productName: prod?.name || 'Produto',
+          category: prod?.category || 'Geral',
+          unit: prod?.unit || 'un',
+          quantity: qInfo.quantity
+        });
+      }
+    });
+
+    if (branchItems.length === 0) return;
+
+    if (pageAdded) {
+      doc.addPage();
+    }
+    pageAdded = true;
+
+    addHeaderWithLogo(
+      doc,
+      'ROMANEIO DE ENVIO & GUIA DE TRANSPORTE',
+      'Despacho de Mercadorias e Transferência em Lote entre Filiais',
+      `#${distId}`,
+      companyLogo,
+      distribution.type === 'epi' ? 'TIPO: EPIs' : 'TIPO: MERCADORIAS'
+    );
+
+    const cardY = 40;
+    const cardHeight = 35;
+
+    // Card Left - Dados de Origem
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.4);
+    doc.roundedRect(12, cardY, 90, cardHeight, 2, 2, 'FD');
+
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text('DADOS DA EXPEDIÇÃO / ORIGEM', 16, cardY + 6.5);
+
+    doc.setFontSize(9);
+    doc.setFont('Helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text('Protocolo ID:', 16, cardY + 13);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text(`#${distId}`, 48, cardY + 13);
+
+    doc.setFont('Helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text('Data Envio:', 16, cardY + 19);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    const distDate = distribution.createdAt ? new Date(distribution.createdAt).toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR');
+    doc.text(distDate, 48, cardY + 19);
+
+    doc.setFont('Helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text('Origem Carga:', 16, cardY + 25);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text('Centro de Distribuição Central', 48, cardY + 25);
+
+    doc.setFont('Helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text('Tipo Lançamento:', 16, cardY + 31);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text(distribution.type === 'epi' ? 'Distribuição de EPIs' : 'Distribuição Geral', 48, cardY + 31);
+
+    // Card Right - DESTINATÁRIO / FILIAL DESTINO
+    doc.setFillColor(254, 240, 138); // Yellow background
+    doc.setDrawColor(234, 179, 8);
+    doc.setLineWidth(0.8);
+    doc.roundedRect(108, cardY, 90, cardHeight, 2, 2, 'FD');
+
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(10.5);
+    doc.setTextColor(0, 0, 0);
+    doc.text('DESTINATÁRIO / FILIAL DESTINO', 112, cardY + 6.5);
+
+    doc.setFontSize(9.5);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text('FILIAL DESTINO:', 112, cardY + 14);
+
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(0, 0, 0);
+    const branchName = branch?.name || 'Filial não identificada';
+    doc.text(branchName.toUpperCase(), 112, cardY + 20);
+
+    doc.setFontSize(9);
+    doc.setFont('Helvetica', 'normal');
+    doc.setTextColor(15, 23, 42);
+    doc.text('Endereço / Local:', 112, cardY + 26);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(0, 0, 0);
+    doc.text(branch?.location || 'Não cadastrada', 145, cardY + 26);
+
+    doc.setFont('Helvetica', 'normal');
+    doc.setTextColor(15, 23, 42);
+    doc.text('Gerente / Recebedor:', 112, cardY + 31);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(0, 0, 0);
+    doc.text(recipientName, 145, cardY + 31);
+
+    // Table Data
+    const tableData: any[][] = [];
+    let totalQty = 0;
+    branchItems.forEach((item, idx) => {
+      totalQty += item.quantity;
+      tableData.push([
+        idx + 1,
+        item.code,
+        item.productName,
+        item.category,
+        item.unit,
+        item.quantity,
+        '[   ] OK'
+      ]);
+    });
+
+    autoTable(doc, {
+      startY: cardY + cardHeight + 5,
+      margin: { left: 12, right: 12 },
+      head: [['Seq', 'Código', 'Descrição do Produto', 'Classificação', 'Unid', 'Qtd Despachada', 'Conferência']],
+      body: tableData,
+      theme: 'striped',
+      headStyles: {
+        fillColor: [15, 23, 42],
+        textColor: [255, 255, 255],
+        fontStyle: 'bold',
+        fontSize: 9,
+        halign: 'left'
+      },
+      bodyStyles: {
+        fontSize: 8.5,
+        textColor: [30, 41, 59]
+      },
+      columnStyles: {
+        0: { cellWidth: 10, halign: 'center' },
+        1: { cellWidth: 25, fontStyle: 'bold' },
+        2: { cellWidth: 'auto' },
+        3: { cellWidth: 30 },
+        4: { cellWidth: 15, halign: 'center' },
+        5: { cellWidth: 25, fontStyle: 'bold', halign: 'center' },
+        6: { cellWidth: 25, halign: 'center' }
+      }
+    });
+
+    let yPos = (doc as any).lastAutoTable.finalY + 8;
+
+    // Totalizer Box
+    doc.setFillColor(241, 245, 249);
+    doc.setDrawColor(203, 213, 225);
+    doc.setLineWidth(0.4);
+    doc.roundedRect(12, yPos, 186, 12, 2, 2, 'FD');
+
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`TOTAL DE ITENS DESPACHADOS PARA A FILIAL: ${branchItems.length} VARIEDADES (${totalQty} UNIDADES TOTAL)`, 16, yPos + 7.5);
+
+    yPos += 22;
+
+    // Signature Block
+    if (yPos > 240) {
+      doc.addPage();
+      yPos = 35;
+    }
+
+    doc.setDrawColor(15, 23, 42);
+    doc.setLineWidth(0.5);
+
+    // Left signature
+    doc.line(16, yPos, 90, yPos);
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text('Expedição / Motorista Transportador', 16, yPos + 5);
+    doc.setFont('Helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text('Conferência de Saída do Estoque Central', 16, yPos + 9);
+
+    // Right signature
+    doc.line(120, yPos, 194, yPos);
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text(recipientName, 120, yPos + 5);
+    doc.setFont('Helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Recebedor Responsável - ${branch?.name || ''}`, 120, yPos + 9);
+  });
+
+  const fileName = selectedBranchId && selectedBranchId !== 'all'
+    ? `romaneio_envio_ramos_${selectedBranchId}_dist_${distId}.pdf`
+    : `romaneios_envio_ramos_dist_${distId}.pdf`;
+
+  doc.save(fileName);
+}
+
+/**
+ * COMPROVANTE DE ENTREGA & TERMO DE RECEBIMENTO POR FILIAL
+ */
+export function generateDistributionReceiptPDF(
+  distribution: any,
+  branches: Branch[],
+  products: Product[],
+  selectedBranchId: string = 'all',
+  companyLogo?: string
+) {
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4'
+  });
+
+  const distId = (distribution?.id || '').toUpperCase();
+  const allBranchIds = Array.from(
+    new Set(distribution?.items?.flatMap((i: any) => i.quantityPerBranch.map((q: any) => q.branchId)))
+  ) as string[];
+
+  const activeBranchIds = selectedBranchId && selectedBranchId !== 'all'
+    ? allBranchIds.filter(id => id === selectedBranchId)
+    : allBranchIds;
+
+  let pageAdded = false;
+
+  activeBranchIds.forEach((branchId) => {
+    const branch = branches.find(b => b.id === branchId);
+    const recipientName = distribution.recipients?.[branchId] || branch?.manager || 'Gerente / Responsável';
+
+    const branchItems: any[] = [];
+    distribution.items.forEach((item: any) => {
+      const prod = products.find(p => p.id === item.productId);
+      const qInfo = item.quantityPerBranch?.find((q: any) => q.branchId === branchId);
+      if (qInfo && qInfo.quantity > 0) {
+        branchItems.push({
+          code: prod?.code || 'N/A',
+          productName: prod?.name || 'Produto',
+          category: prod?.category || 'Geral',
+          unit: prod?.unit || 'un',
+          quantity: qInfo.quantity
+        });
+      }
+    });
+
+    if (branchItems.length === 0) return;
+
+    if (pageAdded) {
+      doc.addPage();
+    }
+    pageAdded = true;
+
+    addHeaderWithLogo(
+      doc,
+      'COMPROVANTE DE ENTREGA & TERMO DE RECEBIMENTO',
+      'Confirmação de Recebimento de Mercadorias e Transferência Interna',
+      `#${distId}`,
+      companyLogo,
+      'RECEBIMENTO FILIAL'
+    );
+
+    const cardY = 40;
+    const cardHeight = 35;
+
+    // Card Left - Dados da Carga
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.4);
+    doc.roundedRect(12, cardY, 90, cardHeight, 2, 2, 'FD');
+
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text('DADOS DO REGISTRO DE DISTRIBUIÇÃO', 16, cardY + 6.5);
+
+    doc.setFontSize(9);
+    doc.setFont('Helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text('Protocolo ID:', 16, cardY + 13);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text(`#${distId}`, 48, cardY + 13);
+
+    doc.setFont('Helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text('Data Lançamento:', 16, cardY + 19);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    const distDate = distribution.createdAt ? new Date(distribution.createdAt).toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR');
+    doc.text(distDate, 48, cardY + 19);
+
+    doc.setFont('Helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text('Origem Remetente:', 16, cardY + 25);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text('Almoxarifado / Estoque Central', 48, cardY + 25);
+
+    doc.setFont('Helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text('Modalidade:', 16, cardY + 31);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text(distribution.type === 'epi' ? 'Termo EPI com Assinatura' : 'Comprovante Padrão de Entrega', 48, cardY + 31);
+
+    // Card Right - FILIAL RECEBEDORA
+    doc.setFillColor(236, 253, 245); // Emerald light background
+    doc.setDrawColor(16, 185, 129);
+    doc.setLineWidth(0.8);
+    doc.roundedRect(108, cardY, 90, cardHeight, 2, 2, 'FD');
+
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(10.5);
+    doc.setTextColor(6, 95, 70);
+    doc.text('FILIAL RECEBEDORA', 112, cardY + 6.5);
+
+    doc.setFontSize(9.5);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text('NOME DA SUCURSAL:', 112, cardY + 14);
+
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(6, 95, 70);
+    const branchName = branch?.name || 'Filial não identificada';
+    doc.text(branchName.toUpperCase(), 112, cardY + 20);
+
+    doc.setFontSize(9);
+    doc.setFont('Helvetica', 'normal');
+    doc.setTextColor(15, 23, 42);
+    doc.text('Endereço / Local:', 112, cardY + 26);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text(branch?.location || 'Não cadastrada', 145, cardY + 26);
+
+    doc.setFont('Helvetica', 'normal');
+    doc.setTextColor(15, 23, 42);
+    doc.text('Gerente Responsável:', 112, cardY + 31);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text(recipientName, 145, cardY + 31);
+
+    // Table Data
+    const tableData: any[][] = [];
+    let totalQty = 0;
+    branchItems.forEach((item, idx) => {
+      totalQty += item.quantity;
+      tableData.push([
+        idx + 1,
+        item.code,
+        item.productName,
+        item.category,
+        item.unit,
+        item.quantity
+      ]);
+    });
+
+    autoTable(doc, {
+      startY: cardY + cardHeight + 5,
+      margin: { left: 12, right: 12 },
+      head: [['Seq', 'Código', 'Descrição do Produto', 'Classificação', 'Unid', 'Qtd Entregue']],
+      body: tableData,
+      theme: 'striped',
+      headStyles: {
+        fillColor: [6, 95, 70],
+        textColor: [255, 255, 255],
+        fontStyle: 'bold',
+        fontSize: 9,
+        halign: 'left'
+      },
+      bodyStyles: {
+        fontSize: 8.5,
+        textColor: [30, 41, 59]
+      },
+      columnStyles: {
+        0: { cellWidth: 10, halign: 'center' },
+        1: { cellWidth: 25, fontStyle: 'bold' },
+        2: { cellWidth: 'auto' },
+        3: { cellWidth: 35 },
+        4: { cellWidth: 15, halign: 'center' },
+        5: { cellWidth: 25, fontStyle: 'bold', halign: 'center' }
+      }
+    });
+
+    let yPos = (doc as any).lastAutoTable.finalY + 8;
+
+    // Declaration text box
+    doc.setFillColor(240, 253, 244);
+    doc.setDrawColor(187, 247, 208);
+    doc.setLineWidth(0.4);
+    const declText = `Declaro que recebi da administração central da Lojas Ramos os produtos discriminados acima em perfeita quantidade, qualidade e integridade física para atendimento e uso operacional da sucursal ${branch?.name || ''}.`;
+    const splitDecl = doc.splitTextToSize(declText, 180);
+    const boxHeight = splitDecl.length * 4.5 + 6;
+
+    doc.roundedRect(12, yPos, 186, boxHeight, 2, 2, 'FD');
+
+    doc.setFont('Helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(6, 78, 59);
+    doc.text(splitDecl, 15, yPos + 6);
+
+    yPos += boxHeight + 20;
+
+    // Signatures
+    if (yPos > 245) {
+      doc.addPage();
+      yPos = 35;
+    }
+
+    doc.setDrawColor(15, 23, 42);
+    doc.setLineWidth(0.5);
+
+    // Left signature line
+    doc.line(16, yPos, 90, yPos);
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text(recipientName, 16, yPos + 5);
+    doc.setFont('Helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Assinatura do Gerente / Responsável`, 16, yPos + 9);
+    doc.text(`Lojas Ramos - ${branch?.name || ''}`, 16, yPos + 13);
+
+    // Right date line
+    doc.line(120, yPos, 194, yPos);
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text('Data: _____ / _____ / _________', 120, yPos + 5);
+    doc.setFont('Helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text('Data Efetiva de Recebimento e Carimbo da Loja', 120, yPos + 9);
+  });
+
+  const fileName = selectedBranchId && selectedBranchId !== 'all'
+    ? `comprovante_filial_ramos_${selectedBranchId}_dist_${distId}.pdf`
+    : `comprovantes_filial_ramos_dist_${distId}.pdf`;
+
+  doc.save(fileName);
+}
+
 

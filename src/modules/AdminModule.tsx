@@ -48,7 +48,7 @@ import {
   TableHeader, 
   TableRow 
 } from '@/components/ui/table';
-import { generateRomaneioPDF, generatePurchaseOrderPDF, generateBoxLabelPDF, generateEpiTermPDF } from '../utils/pdfGenerator';
+import { generateRomaneioPDF, generatePurchaseOrderPDF, generateBoxLabelPDF, generateEpiTermPDF, generateDistributionRomaneioPDF, generateDistributionReceiptPDF } from '../utils/pdfGenerator';
 import { 
   Dialog, 
   DialogContent, 
@@ -840,8 +840,21 @@ function DistributionTab() {
   const [isTypeDropdownOpen, setIsTypeDropdownOpen] = useState(false);
   const [distributionType, setDistributionType] = useState<'general' | 'epi'>('general');
   const [isCatalogOpen, setIsCatalogOpen] = useState(false);
+  const [isBranchesModalOpen, setIsBranchesModalOpen] = useState(false);
   const [viewingDistribution, setViewingDistribution] = useState<any | null>(null);
   const [printingEpiTerm, setPrintingEpiTerm] = useState<any | null>(null);
+
+  // Submenu Tab: 'overview' (Painel Geral) vs 'tracking' (Acompanhamento por Filial)
+  const [subTab, setSubTab] = useState<'overview' | 'tracking'>('overview');
+
+  // Tracking Submenu Filters
+  const [trackingBranchFilter, setTrackingBranchFilter] = useState<string>('all');
+  const [trackingTypeFilter, setTrackingTypeFilter] = useState<'all' | 'general' | 'epi'>('all');
+  const [trackingSearch, setTrackingSearch] = useState<string>('');
+
+  // Modals for Printing Romaneio & Comprovante
+  const [printingRomaneio, setPrintingRomaneio] = useState<{ distribution: any; selectedBranchId: string } | null>(null);
+  const [printingReceipt, setPrintingReceipt] = useState<{ distribution: any; selectedBranchId: string } | null>(null);
 
   // 1. Selected Branches for this bulk distribution
   const [selectedBranchIds, setSelectedBranchIds] = useState<string[]>([]);
@@ -876,6 +889,8 @@ function DistributionTab() {
     setAllocations({});
     setRecipients({});
     setBranchSearch('');
+    setIsBranchesModalOpen(false);
+    setIsCatalogOpen(false);
     setIsBranchDropdownOpen(false);
     setIsTypeDropdownOpen(false);
     setIsAddOpen(true);
@@ -1058,6 +1073,78 @@ function DistributionTab() {
 
   const activeProduct = products.find(p => p.id === activeProductId);
 
+  // Computed tracking items for history per branch
+  const branchHistoryItems = React.useMemo(() => {
+    const list: Array<{
+      dist: any;
+      branchId: string;
+      branchName: string;
+      branchCode: string;
+      branchManager: string;
+      recipientName: string;
+      products: Array<{ product: any; quantity: number }>;
+      totalVariety: number;
+      totalQty: number;
+      createdAt: string;
+    }> = [];
+
+    distributions.forEach((d) => {
+      const bIds = Array.from(
+        new Set(d.items.flatMap((i: any) => i.quantityPerBranch.filter((q: any) => q.quantity > 0).map((q: any) => q.branchId)))
+      ) as string[];
+
+      bIds.forEach((bId) => {
+        const branch = branches.find((b) => b.id === bId);
+        const recipientName = d.recipients?.[bId] || branch?.manager || 'Gerente / Responsável';
+
+        const branchProds: Array<{ product: any; quantity: number }> = [];
+        let totalQty = 0;
+
+        d.items.forEach((item: any) => {
+          const qInfo = item.quantityPerBranch?.find((q: any) => q.branchId === bId);
+          if (qInfo && qInfo.quantity > 0) {
+            const prod = products.find((p) => p.id === item.productId);
+            branchProds.push({ product: prod, quantity: qInfo.quantity });
+            totalQty += qInfo.quantity;
+          }
+        });
+
+        if (branchProds.length > 0) {
+          list.push({
+            dist: d,
+            branchId: bId,
+            branchName: branch?.name || `Filial #${bId}`,
+            branchCode: branch?.code || `FL-${bId}`,
+            branchManager: branch?.manager || 'Não atribuído',
+            recipientName,
+            products: branchProds,
+            totalVariety: branchProds.length,
+            totalQty,
+            createdAt: d.createdAt
+          });
+        }
+      });
+    });
+
+    return list.reverse();
+  }, [distributions, branches, products]);
+
+  // Filtered branch history items
+  const filteredBranchHistory = branchHistoryItems.filter((item) => {
+    const matchesBranch = trackingBranchFilter === 'all' || item.branchId === trackingBranchFilter;
+    const matchesType = trackingTypeFilter === 'all' || item.dist.type === trackingTypeFilter;
+
+    const query = trackingSearch.toLowerCase().trim();
+    const matchesSearch = !query ||
+      item.dist.id.toLowerCase().includes(query) ||
+      item.branchName.toLowerCase().includes(query) ||
+      item.branchCode.toLowerCase().includes(query) ||
+      item.recipientName.toLowerCase().includes(query) ||
+      item.products.some(p => p.product?.name?.toLowerCase().includes(query) || p.product?.code?.toLowerCase().includes(query));
+
+    return matchesBranch && matchesType && matchesSearch;
+  });
+
   const handlePrintDocument = () => {
     try {
       window.focus();
@@ -1069,175 +1156,441 @@ function DistributionTab() {
   };
 
   return (
-    <div className="space-y-8">
-      <Card className="border-slate-800 bg-slate-900/50 shadow-2xl backdrop-blur-xl">
-        <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-slate-800/50 pb-6">
-          <div className="flex flex-col gap-1">
-            <h3 className="text-xl font-bold text-white tracking-tight">Painel de Distribuição em Massa</h3>
-            <p className="text-sm text-slate-400 font-medium tracking-wide">Distribua lotes de mercadorias gerais ou EPIs com emissão de termo de entrega para as 40 filiais.</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <ExportExcelModal
-              title="Exportar Registros de Distribuição"
-              description="Exporte os lançamentos de distribuição de estoque para as filiais."
-              data={distributions.map(d => ({
-                IDDistribuição: d.id.toUpperCase(),
-                Tipo: d.type === 'epi' ? 'EPIs' : 'Geral',
-                Data: new Date(d.createdAt).toLocaleDateString('pt-BR'),
-                TotalItens: d.items.length,
-                TotalFiliaisAtendidas: new Set(d.items.flatMap(i => i.quantityPerBranch.map(q => q.branchId))).size
-              }))}
-              defaultFilename="distribuicao_mercadorias"
-              sheetName="Distribuicao"
-              columns={[
-                { key: 'IDDistribuição', label: 'ID Distribuição' },
-                { key: 'Tipo', label: 'Tipo de Distribuição' },
-                { key: 'Data', label: 'Data de Lançamento' },
-                { key: 'TotalItens', label: 'Variedade de Produtos' },
-                { key: 'TotalFiliaisAtendidas', label: 'Filiais Atendidas' },
-              ]}
-            />
+    <div className="space-y-6">
+      {/* NAVEGAÇÃO DE SUBMENU DE DISTRIBUIÇÃO EM MASSA */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900/80 p-3 rounded-2xl border border-slate-800/80 shadow-lg backdrop-blur-xl">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setSubTab('overview')}
+            className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2.5 ${
+              subTab === 'overview'
+                ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/25 ring-1 ring-cyan-400/30'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+            }`}
+          >
+            <Layers size={16} />
+            <span>Painel Geral de Lançamentos</span>
+          </button>
 
-            {/* DROPDOWN DE TIPO DE DISTRIBUIÇÃO */}
-            <div className="relative">
-              <Button 
-                onClick={() => setIsTypeDropdownOpen(!isTypeDropdownOpen)}
-                className="bg-cyan-500 hover:bg-cyan-400 text-white h-11 px-6 rounded-lg shadow-[0_0_20px_rgba(6,182,212,0.3)] transition-all hover:scale-[1.02] font-bold border-none flex items-center gap-2"
-              >
-                <Share2 size={18} /> 
-                <span>Nova Distribuição em Massa</span>
-                <ChevronDown size={16} className={`transition-transform ${isTypeDropdownOpen ? 'rotate-180' : ''}`} />
-              </Button>
+          <button
+            type="button"
+            onClick={() => setSubTab('tracking')}
+            className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2.5 ${
+              subTab === 'tracking'
+                ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/25 ring-1 ring-cyan-400/30'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+            }`}
+          >
+            <Truck size={16} />
+            <span>Acompanhamento por Filial</span>
+            <Badge className="bg-cyan-500/20 text-cyan-300 border-cyan-500/40 text-[10px] font-bold">
+              Romaneios & Comprovantes
+            </Badge>
+          </button>
+        </div>
 
-              {isTypeDropdownOpen && (
-                <div className="absolute right-0 top-13 z-50 w-72 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-2 space-y-1 animate-in fade-in duration-150">
-                  <button
-                    type="button"
-                    onClick={() => handleOpenNewDistribution('general')}
-                    className="w-full text-left p-3 rounded-lg hover:bg-slate-800 flex items-start gap-3 transition-colors text-slate-200 group"
-                  >
-                    <div className="w-8 h-8 rounded-lg bg-cyan-500/10 text-cyan-400 flex items-center justify-center flex-shrink-0 group-hover:bg-cyan-500 group-hover:text-white transition-colors">
-                      <Package size={18} />
-                    </div>
-                    <div>
-                      <p className="font-bold text-sm text-white">Distribuição Geral</p>
-                      <p className="text-[11px] text-slate-400">Mercadorias, estoque e insumos operacionais.</p>
-                    </div>
-                  </button>
+        <div className="text-xs text-slate-400 font-medium px-2 hidden md:block">
+          {subTab === 'overview'
+            ? 'Visão consolidada de distribuições em lote'
+            : 'Histórico individualizado por filial com romaneio e comprovante de entrega'}
+        </div>
+      </div>
 
-                  <button
-                    type="button"
-                    onClick={() => handleOpenNewDistribution('epi')}
-                    className="w-full text-left p-3 rounded-lg hover:bg-emerald-500/10 border border-emerald-500/30 flex items-start gap-3 transition-colors text-slate-200 group"
-                  >
-                    <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center flex-shrink-0 group-hover:bg-emerald-500 group-hover:text-white transition-colors">
-                      <ShieldCheck size={18} />
-                    </div>
-                    <div>
-                      <p className="font-bold text-sm text-emerald-400 flex items-center gap-1.5">
-                        Distribuição de EPIs
-                        <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/40 text-[9px]">Com Termo</Badge>
-                      </p>
-                      <p className="text-[11px] text-slate-400">Equipamentos de Proteção com documento de assinatura.</p>
-                    </div>
-                  </button>
-                </div>
-              )}
+      {/* VISÃO 1: PAINEL GERAL DE LANÇAMENTOS (OVERVIEW) */}
+      {subTab === 'overview' && (
+        <Card className="border-slate-800 bg-slate-900/50 shadow-2xl backdrop-blur-xl">
+          <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-slate-800/50 pb-6">
+            <div className="flex flex-col gap-1">
+              <h3 className="text-xl font-bold text-white tracking-tight">Painel de Distribuição em Massa</h3>
+              <p className="text-sm text-slate-400 font-medium tracking-wide">Distribua lotes de mercadorias gerais ou EPIs com emissão de termo de entrega para as 40 filiais.</p>
             </div>
-          </div>
-        </CardHeader>
+            <div className="flex items-center gap-3">
+              <ExportExcelModal
+                title="Exportar Registros de Distribuição"
+                description="Exporte os lançamentos de distribuição de estoque para as filiais."
+                data={distributions.map(d => ({
+                  IDDistribuição: d.id.toUpperCase(),
+                  Tipo: d.type === 'epi' ? 'EPIs' : 'Geral',
+                  Data: new Date(d.createdAt).toLocaleDateString('pt-BR'),
+                  TotalItens: d.items.length,
+                  TotalFiliaisAtendidas: new Set(d.items.flatMap(i => i.quantityPerBranch.map(q => q.branchId))).size
+                }))}
+                defaultFilename="distribuicao_mercadorias"
+                sheetName="Distribuicao"
+                columns={[
+                  { key: 'IDDistribuição', label: 'ID Distribuição' },
+                  { key: 'Tipo', label: 'Tipo de Distribuição' },
+                  { key: 'Data', label: 'Data de Lançamento' },
+                  { key: 'TotalItens', label: 'Variedade de Produtos' },
+                  { key: 'TotalFiliaisAtendidas', label: 'Filiais Atendidas' },
+                ]}
+              />
 
-        <CardContent className="p-0">
-          <div className="w-full overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow className="border-b border-slate-800 hover:bg-transparent">
-                  <TableHead className="text-slate-500 font-bold uppercase text-[10px] tracking-widest">ID / Tipo</TableHead>
-                  <TableHead className="text-slate-500 font-bold uppercase text-[10px] tracking-widest">Data</TableHead>
-                  <TableHead className="text-slate-500 font-bold uppercase text-[10px] tracking-widest">Itens Distribuídos</TableHead>
-                  <TableHead className="text-slate-500 font-bold uppercase text-[10px] tracking-widest">Filiais Atendidas</TableHead>
-                  <TableHead className="text-right text-slate-500 font-bold uppercase text-[10px] tracking-widest">Ações</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {distributions.slice().reverse().map((d) => {
-                  const totalBranches = new Set();
-                  d.items.forEach(item => item.quantityPerBranch.forEach(q => totalBranches.add(q.branchId)));
-                  const isEpi = d.type === 'epi';
+              {/* DROPDOWN DE TIPO DE DISTRIBUIÇÃO */}
+              <div className="relative">
+                <Button 
+                  onClick={() => setIsTypeDropdownOpen(!isTypeDropdownOpen)}
+                  className="bg-cyan-500 hover:bg-cyan-400 text-white h-11 px-6 rounded-lg shadow-[0_0_20px_rgba(6,182,212,0.3)] transition-all hover:scale-[1.02] font-bold border-none flex items-center gap-2"
+                >
+                  <Share2 size={18} /> 
+                  <span>Nova Distribuição em Massa</span>
+                  <ChevronDown size={16} className={`transition-transform ${isTypeDropdownOpen ? 'rotate-180' : ''}`} />
+                </Button>
 
-                  return (
-                    <TableRow key={d.id} className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors">
-                      <TableCell>
-                        <div className="flex flex-col gap-1">
-                          <span className="font-mono font-bold text-cyan-500">#{d.id.toUpperCase()}</span>
-                          {isEpi ? (
-                            <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 font-bold text-[10px] w-fit gap-1">
-                              <ShieldCheck size={12} /> EPIs (Com Termo)
-                            </Badge>
-                          ) : (
-                            <Badge variant="outline" className="text-slate-400 border-slate-700 text-[10px] w-fit">
-                              📦 Mercadorias
-                            </Badge>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-slate-400 font-medium">{new Date(d.createdAt).toLocaleDateString('pt-BR')}</TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap gap-2">
-                          {d.items.map(item => {
-                            const product = products.find(p => p.id === item.productId);
-                            const totalQty = item.quantityPerBranch.reduce((acc, q) => acc + q.quantity, 0);
-                            return (
-                              <Badge key={item.productId} variant="outline" className="bg-slate-800/50 border-slate-700 text-slate-300 gap-1">
-                                <span>{product?.name || 'Produto'}</span>
-                                <span className="text-cyan-400 font-bold">({totalQty} {product?.unit || 'un'})</span>
+                {isTypeDropdownOpen && (
+                  <div className="absolute right-0 top-13 z-50 w-72 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-2 space-y-1 animate-in fade-in duration-150">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenNewDistribution('general')}
+                      className="w-full text-left p-3 rounded-lg hover:bg-slate-800 flex items-start gap-3 transition-colors text-slate-200 group"
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-cyan-500/10 text-cyan-400 flex items-center justify-center flex-shrink-0 group-hover:bg-cyan-500 group-hover:text-white transition-colors">
+                        <Package size={18} />
+                      </div>
+                      <div>
+                        <p className="font-bold text-sm text-white">Distribuição Geral</p>
+                        <p className="text-[11px] text-slate-400">Mercadorias, estoque e insumos operacionais.</p>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleOpenNewDistribution('epi')}
+                      className="w-full text-left p-3 rounded-lg hover:bg-emerald-500/10 border border-emerald-500/30 flex items-start gap-3 transition-colors text-slate-200 group"
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center flex-shrink-0 group-hover:bg-emerald-500 group-hover:text-white transition-colors">
+                        <ShieldCheck size={18} />
+                      </div>
+                      <div>
+                        <p className="font-bold text-sm text-emerald-400 flex items-center gap-1.5">
+                          Distribuição de EPIs
+                          <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/40 text-[9px]">Com Termo</Badge>
+                        </p>
+                        <p className="text-[11px] text-slate-400">Equipamentos de Proteção com documento de assinatura.</p>
+                      </div>
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </CardHeader>
+
+          <CardContent className="p-0">
+            <div className="w-full overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-b border-slate-800 hover:bg-transparent">
+                    <TableHead className="text-slate-500 font-bold uppercase text-[10px] tracking-widest">ID / Tipo</TableHead>
+                    <TableHead className="text-slate-500 font-bold uppercase text-[10px] tracking-widest">Data</TableHead>
+                    <TableHead className="text-slate-500 font-bold uppercase text-[10px] tracking-widest">Itens Distribuídos</TableHead>
+                    <TableHead className="text-slate-500 font-bold uppercase text-[10px] tracking-widest">Filiais Atendidas</TableHead>
+                    <TableHead className="text-right text-slate-500 font-bold uppercase text-[10px] tracking-widest">Ações</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {distributions.slice().reverse().map((d) => {
+                    const totalBranches = new Set();
+                    d.items.forEach(item => item.quantityPerBranch.forEach(q => totalBranches.add(q.branchId)));
+                    const isEpi = d.type === 'epi';
+
+                    return (
+                      <TableRow key={d.id} className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors">
+                        <TableCell>
+                          <div className="flex flex-col gap-1">
+                            <span className="font-mono font-bold text-cyan-500">#{d.id.toUpperCase()}</span>
+                            {isEpi ? (
+                              <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 font-bold text-[10px] w-fit gap-1">
+                                <ShieldCheck size={12} /> EPIs (Com Termo)
                               </Badge>
-                            );
-                          })}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge className="bg-cyan-500/10 text-cyan-400 border-cyan-500/20">
-                          {totalBranches.size} Filiais
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          {isEpi && (
+                            ) : (
+                              <Badge variant="outline" className="text-slate-400 border-slate-700 text-[10px] w-fit">
+                                📦 Mercadorias
+                              </Badge>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-slate-400 font-medium">{new Date(d.createdAt).toLocaleDateString('pt-BR')}</TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-2">
+                            {d.items.map(item => {
+                              const product = products.find(p => p.id === item.productId);
+                              const totalQty = item.quantityPerBranch.reduce((acc, q) => acc + q.quantity, 0);
+                              return (
+                                <Badge key={item.productId} variant="outline" className="bg-slate-800/50 border-slate-700 text-slate-300 gap-1">
+                                  <span>{product?.name || 'Produto'}</span>
+                                  <span className="text-cyan-400 font-bold">({totalQty} {product?.unit || 'un'})</span>
+                                </Badge>
+                              );
+                            })}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge className="bg-cyan-500/10 text-cyan-400 border-cyan-500/20">
+                            {totalBranches.size} Filiais
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            {isEpi && (
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                className="h-8 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 font-bold text-xs gap-1.5"
+                                onClick={() => setPrintingEpiTerm({ distribution: d, selectedBranchId: 'all' })}
+                              >
+                                <FileText size={14} /> Termo EPI
+                              </Button>
+                            )}
                             <Button 
-                              variant="outline" 
-                              size="sm" 
-                              className="h-8 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 font-bold text-xs gap-1.5"
-                              onClick={() => setPrintingEpiTerm({ distribution: d, selectedBranchId: 'all' })}
+                              variant="ghost" 
+                              size="icon" 
+                              className="text-slate-500 hover:text-cyan-400 hover:bg-cyan-500/10"
+                              onClick={() => setViewingDistribution(d)}
                             >
-                              <FileText size={14} /> Termo EPI
+                              <Eye size={18} />
                             </Button>
-                          )}
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="text-slate-500 hover:text-cyan-400 hover:bg-cyan-500/10"
-                            onClick={() => setViewingDistribution(d)}
-                          >
-                            <Eye size={18} />
-                          </Button>
-                        </div>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                  {distributions.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center py-16 text-slate-500 font-medium">
+                        Nenhum registro de distribuição em massa efetuado.
                       </TableCell>
                     </TableRow>
-                  );
-                })}
-                {distributions.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={5} className="text-center py-16 text-slate-500 font-medium">
-                      Nenhum registro de distribuição em massa efetuado.
-                    </TableCell>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* VISÃO 2: SUBMENU DE ACOMPANHAMENTO POR FILIAL (TRACKING) */}
+      {subTab === 'tracking' && (
+        <Card className="border-slate-800 bg-slate-900/50 shadow-2xl backdrop-blur-xl">
+          <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-slate-800/50 pb-6">
+            <div className="flex flex-col gap-1">
+              <h3 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
+                <Truck className="text-cyan-400" size={24} />
+                Acompanhamento de Distribuições por Filial
+              </h3>
+              <p className="text-sm text-slate-400 font-medium tracking-wide">
+                Consulte o histórico individualizado por filial com acesso ao Romaneio de Envio e Comprovante de Entrega.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <ExportExcelModal
+                title="Exportar Histórico de Distribuições por Filial"
+                description="Relatório detalhado das entregas de mercadorias e EPIs por sucursal."
+                data={filteredBranchHistory.map(item => ({
+                  IDDistribuição: item.dist.id.toUpperCase(),
+                  Filial: item.branchName,
+                  CodigoFilial: item.branchCode,
+                  GerenteRecebedor: item.recipientName,
+                  Tipo: item.dist.type === 'epi' ? 'EPIs (Com Termo)' : 'Geral',
+                  DataEnvio: new Date(item.createdAt).toLocaleDateString('pt-BR'),
+                  VariedadeProdutos: item.totalVariety,
+                  TotalUnidades: item.totalQty,
+                  ProdutosResumo: item.products.map(p => `${p.product?.name || 'Item'} (${p.quantity} un)`).join(', ')
+                }))}
+                defaultFilename="acompanhamento_distribuicao_filiais"
+                sheetName="Acompanhamento"
+                columns={[
+                  { key: 'IDDistribuição', label: 'ID Lote' },
+                  { key: 'Filial', label: 'Filial Destino' },
+                  { key: 'CodigoFilial', label: 'Código' },
+                  { key: 'GerenteRecebedor', label: 'Recebedor' },
+                  { key: 'Tipo', label: 'Tipo' },
+                  { key: 'DataEnvio', label: 'Data Lançamento' },
+                  { key: 'VariedadeProdutos', label: 'Variedades' },
+                  { key: 'TotalUnidades', label: 'Total Qtd' },
+                  { key: 'ProdutosResumo', label: 'Itens Entregues' },
+                ]}
+              />
+            </div>
+          </CardHeader>
+
+          <CardContent className="p-6 space-y-6">
+            {/* BARRA DE FILTROS DO ACOMPANHAMENTO */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 bg-slate-950/60 p-4 rounded-xl border border-slate-800">
+              {/* Filtro de Filial */}
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Building2 size={13} className="text-cyan-400" />
+                  Filial (40 Unidades)
+                </label>
+                <select
+                  value={trackingBranchFilter}
+                  onChange={(e) => setTrackingBranchFilter(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs font-bold text-white focus:outline-none focus:border-cyan-500 transition-colors"
+                >
+                  <option value="all">Todas as 40 Filiais</option>
+                  {branches.map(b => (
+                    <option key={b.id} value={b.id}>
+                      {b.name} ({b.code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Filtro de Tipo */}
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Filter size={13} className="text-cyan-400" />
+                  Modalidade
+                </label>
+                <select
+                  value={trackingTypeFilter}
+                  onChange={(e) => setTrackingTypeFilter(e.target.value as any)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs font-bold text-white focus:outline-none focus:border-cyan-500 transition-colors"
+                >
+                  <option value="all">Todos os Tipos</option>
+                  <option value="general">📦 Mercadorias Gerais</option>
+                  <option value="epi">🛡️ EPIs (Com Termo)</option>
+                </select>
+              </div>
+
+              {/* Campo de Pesquisa */}
+              <div className="space-y-1.5 sm:col-span-2">
+                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Search size={13} className="text-cyan-400" />
+                  Pesquisar por Lote, Produto ou Filial
+                </label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-2.5 text-slate-500" size={15} />
+                  <Input
+                    value={trackingSearch}
+                    onChange={(e) => setTrackingSearch(e.target.value)}
+                    placeholder="Digite o ID #DIST-..., nome da loja ou produto..."
+                    className="pl-9 bg-slate-900 border-slate-700 text-white placeholder:text-slate-500 text-xs h-9 rounded-lg"
+                  />
+                  {trackingSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setTrackingSearch('')}
+                      className="absolute right-3 top-2.5 text-slate-500 hover:text-white"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* TABELA DE REGISTROS POR FILIAL */}
+            <div className="w-full overflow-x-auto rounded-xl border border-slate-800">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-b border-slate-800 bg-slate-950/80 hover:bg-transparent">
+                    <TableHead className="text-slate-500 font-bold uppercase text-[10px] tracking-widest">Protocolo / Data</TableHead>
+                    <TableHead className="text-slate-500 font-bold uppercase text-[10px] tracking-widest">Filial Destino</TableHead>
+                    <TableHead className="text-slate-500 font-bold uppercase text-[10px] tracking-widest">Itens Entregues</TableHead>
+                    <TableHead className="text-slate-500 font-bold uppercase text-[10px] tracking-widest text-center">Volume Total</TableHead>
+                    <TableHead className="text-right text-slate-500 font-bold uppercase text-[10px] tracking-widest">Documentos de Acompanhamento</TableHead>
                   </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
+                </TableHeader>
+                <TableBody>
+                  {filteredBranchHistory.map((item, index) => {
+                    const isEpi = item.dist.type === 'epi';
+
+                    return (
+                      <TableRow key={`${item.dist.id}-${item.branchId}-${index}`} className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors">
+                        <TableCell>
+                          <div className="flex flex-col gap-1">
+                            <span className="font-mono font-bold text-cyan-400">#{item.dist.id.toUpperCase()}</span>
+                            <span className="text-[11px] text-slate-400 font-medium">{new Date(item.createdAt).toLocaleDateString('pt-BR')}</span>
+                            {isEpi ? (
+                              <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 font-bold text-[9px] w-fit gap-1">
+                                <ShieldCheck size={10} /> EPIs
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-slate-400 border-slate-700 text-[9px] w-fit">
+                                📦 Geral
+                              </Badge>
+                            )}
+                          </div>
+                        </TableCell>
+
+                        <TableCell>
+                          <div className="flex flex-col gap-0.5">
+                            <span className="font-bold text-white text-sm flex items-center gap-1.5">
+                              <Building2 size={14} className="text-cyan-400 shrink-0" />
+                              {item.branchName}
+                            </span>
+                            <span className="text-xs text-slate-400 flex items-center gap-1">
+                              <User size={12} className="text-slate-500" />
+                              Recebedor: <strong className="text-slate-300">{item.recipientName}</strong>
+                            </span>
+                          </div>
+                        </TableCell>
+
+                        <TableCell>
+                          <div className="flex flex-wrap gap-1.5 max-w-md">
+                            {item.products.map(({ product, quantity }) => (
+                              <Badge key={product?.id || Math.random()} variant="outline" className="bg-slate-800/80 border-slate-700 text-slate-300 gap-1 text-[11px]">
+                                <span className="font-medium">{product?.name || 'Produto'}</span>
+                                <strong className="text-cyan-400 font-bold">({quantity} {product?.unit || 'un'})</strong>
+                              </Badge>
+                            ))}
+                          </div>
+                        </TableCell>
+
+                        <TableCell className="text-center">
+                          <div className="flex flex-col items-center">
+                            <Badge className="bg-cyan-500/10 text-cyan-400 border-cyan-500/20 font-bold">
+                              {item.totalQty} un.
+                            </Badge>
+                            <span className="text-[10px] text-slate-500 mt-0.5">({item.totalVariety} variações)</span>
+                          </div>
+                        </TableCell>
+
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            {/* BOTAO ROMANEIO DE ENVIO */}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setPrintingRomaneio({ distribution: item.dist, selectedBranchId: item.branchId })}
+                              className="h-8 border-cyan-500/40 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 font-bold text-xs gap-1.5 shadow-sm"
+                            >
+                              <Truck size={14} className="text-cyan-400" />
+                              <span>Romaneio</span>
+                            </Button>
+
+                            {/* BOTAO COMPROVANTE DA FILIAL */}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setPrintingReceipt({ distribution: item.dist, selectedBranchId: item.branchId })}
+                              className="h-8 border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 font-bold text-xs gap-1.5 shadow-sm"
+                            >
+                              <FileText size={14} className="text-emerald-400" />
+                              <span>Comprovante</span>
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+
+                  {filteredBranchHistory.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center py-16 text-slate-500 font-medium">
+                        Nenhum registro de distribuição por filial encontrado para os filtros selecionados.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* MODAL 1: CRIAR DISTRIBUIÇÃO EM MASSA (GERAL OU EPI) */}
       <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
@@ -1306,416 +1659,469 @@ function DistributionTab() {
               </div>
             )}
 
-            {/* ETAPA 1: DROPDOWN DE SELEÇÃO DE FILIAIS E ABRIR CATÁLOGO DE PRODUTOS */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-950/60 p-5 rounded-xl border border-slate-800">
-              
-              {/* DROPDOWN MULTI-SELEÇÃO DE FILIAIS */}
+            {/* ETAPA 1: BOTÕES "FILIAIS" E "CATÁLOGO DE PRODUTOS" */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-950/60 p-5 rounded-xl border border-slate-800">
+              {/* BOTÃO FILIAIS */}
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label className="text-xs font-bold uppercase text-cyan-400 tracking-widest flex items-center gap-2">
-                    <Building2 size={14} /> 1. Filiais Participantes ({selectedBranchIds.length} de {branches.length})
-                  </Label>
-                </div>
-
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setIsBranchDropdownOpen(!isBranchDropdownOpen)}
-                    className="w-full h-12 bg-slate-900 border border-slate-700 hover:border-cyan-500/50 rounded-lg px-4 text-left text-sm text-slate-200 flex items-center justify-between transition-colors shadow-inner"
-                  >
-                    <span className="truncate font-medium">
-                      {selectedBranchIds.length === 0 
-                        ? 'Nenhuma filial selecionada'
-                        : selectedBranchIds.length === branches.length
-                        ? `Todas as ${branches.length} Filiais Selecionadas`
-                        : `${selectedBranchIds.length} Filiais Selecionadas`}
-                    </span>
-                    <ChevronDown size={18} className={`text-slate-400 transition-transform ${isBranchDropdownOpen ? 'rotate-180' : ''}`} />
-                  </button>
-
-                  {isBranchDropdownOpen && (
-                    <div className="absolute left-0 right-0 top-14 z-50 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-4 space-y-3 animate-in fade-in duration-200">
-                      <div className="flex items-center justify-between border-b border-slate-800 pb-2 gap-2">
-                        <Input 
-                          placeholder="Buscar filial..." 
-                          className="h-9 text-xs bg-slate-950 border-slate-800 text-white"
-                          value={branchSearch}
-                          onChange={e => setBranchSearch(e.target.value)}
-                        />
-                        <div className="flex items-center gap-1">
-                          <Button 
-                            type="button" 
-                            variant="ghost" 
-                            size="sm" 
-                            className="h-8 text-[11px] font-bold text-cyan-400 hover:bg-cyan-500/10 px-2"
-                            onClick={handleSelectAllBranches}
-                          >
-                            Todas
-                          </Button>
-                          <Button 
-                            type="button" 
-                            variant="ghost" 
-                            size="sm" 
-                            className="h-8 text-[11px] font-bold text-slate-400 hover:bg-slate-800 px-2"
-                            onClick={handleDeselectAllBranches}
-                          >
-                            Nenhuma
-                          </Button>
-                        </div>
-                      </div>
-
-                      <div className="max-h-48 overflow-y-auto space-y-1.5 custom-scrollbar pr-1">
-                        {filteredBranches.map(branch => {
-                          const isSelected = selectedBranchIds.includes(branch.id);
-                          return (
-                            <div 
-                              key={branch.id} 
-                              onClick={() => toggleBranchSelection(branch.id)}
-                              className={`flex items-center justify-between p-2.5 rounded-lg text-xs cursor-pointer transition-colors ${
-                                isSelected ? 'bg-cyan-500/15 text-cyan-300 font-bold border border-cyan-500/30' : 'hover:bg-slate-800 text-slate-300'
-                              }`}
-                            >
-                              <div className="flex items-center gap-2">
-                                {isSelected ? (
-                                  <CheckSquare size={16} className="text-cyan-400 flex-shrink-0" />
-                                ) : (
-                                  <Square size={16} className="text-slate-500 flex-shrink-0" />
-                                )}
-                                <span>{branch.name}</span>
-                              </div>
-                              {branch.location && (
-                                <span className="text-[10px] text-slate-500 font-normal">{branch.location}</span>
-                              )}
-                            </div>
-                          );
-                        })}
-                        {filteredBranches.length === 0 && (
-                          <p className="text-xs text-slate-500 text-center py-4">Nenhuma filial encontrada.</p>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* BOTÃO PARA ABRIR O CATÁLOGO DE PRODUTOS */}
-              <div className="space-y-2 flex flex-col justify-between">
-                <Label className="text-xs font-bold uppercase text-cyan-400 tracking-widest flex items-center gap-2">
-                  <Package size={14} /> 2. Produtos da Distribuição ({selectedProducts.length} itens)
+                <Label className="text-xs font-bold uppercase text-cyan-400 tracking-widest flex items-center justify-between">
+                  <span className="flex items-center gap-2"><Building2 size={16} /> 1. Filiais Participantes</span>
+                  <span className="text-slate-400 font-normal">({selectedBranchIds.length} de {branches.length})</span>
                 </Label>
 
                 <Button
-                  onClick={() => setIsCatalogOpen(true)}
-                  className={`w-full h-12 text-white font-bold rounded-lg shadow-lg border-none transition-all flex items-center justify-center gap-2 ${
-                    distributionType === 'epi' 
-                      ? 'bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 shadow-emerald-500/20'
-                      : 'bg-gradient-to-r from-cyan-600 to-cyan-500 hover:from-cyan-500 hover:to-cyan-400 shadow-cyan-500/20'
-                  }`}
+                  type="button"
+                  onClick={() => setIsBranchesModalOpen(true)}
+                  className="w-full h-14 bg-slate-900 hover:bg-slate-850 border border-slate-700 hover:border-cyan-500/60 text-white font-bold rounded-xl shadow-md transition-all flex items-center justify-between px-5 group"
                 >
-                  <Plus size={18} />
-                  <span>
-                    {distributionType === 'epi' ? 'Catálogo de EPIs' : 'Catálogo de Produtos'}
-                  </span>
-                  {selectedProducts.length > 0 && (
-                    <Badge className="bg-white text-slate-950 font-extrabold ml-2">
-                      {selectedProducts.length}
-                    </Badge>
-                  )}
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 flex items-center justify-center group-hover:bg-cyan-500 group-hover:text-white transition-all">
+                      <Building2 size={20} />
+                    </div>
+                    <div className="text-left">
+                      <p className="text-base font-bold text-white leading-tight">Filiais</p>
+                      <p className="text-xs text-slate-400">
+                        {selectedBranchIds.length === 0 
+                          ? 'Nenhuma filial selecionada' 
+                          : selectedBranchIds.length === branches.length 
+                          ? `Todas as ${branches.length} filiais selecionadas` 
+                          : `${selectedBranchIds.length} filiais selecionadas`}
+                      </p>
+                    </div>
+                  </div>
+                  <Badge className="bg-cyan-500/20 text-cyan-300 border-cyan-500/40 text-xs px-3 py-1 font-bold">
+                    {selectedBranchIds.length} Filiais
+                  </Badge>
                 </Button>
               </div>
 
+              {/* BOTÃO CATÁLOGO DE PRODUTOS */}
+              <div className="space-y-2">
+                <Label className="text-xs font-bold uppercase text-cyan-400 tracking-widest flex items-center justify-between">
+                  <span className="flex items-center gap-2"><Package size={16} /> 2. Produtos do Catálogo</span>
+                  <span className="text-slate-400 font-normal">({selectedProducts.length} itens)</span>
+                </Label>
+
+                <Button
+                  type="button"
+                  onClick={() => setIsCatalogOpen(true)}
+                  className={`w-full h-14 text-white font-bold rounded-xl shadow-md border-none transition-all flex items-center justify-between px-5 ${
+                    distributionType === 'epi' 
+                      ? 'bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 shadow-emerald-500/20' 
+                      : 'bg-gradient-to-r from-cyan-600 to-cyan-500 hover:from-cyan-500 hover:to-cyan-400 shadow-cyan-500/20'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-white/10 text-white flex items-center justify-center">
+                      <Package size={20} />
+                    </div>
+                    <div className="text-left">
+                      <p className="text-base font-bold text-white leading-tight">Catálogo de Produtos</p>
+                      <p className="text-xs text-white/80">
+                        {selectedProducts.length === 0 ? 'Clique para selecionar produtos' : `${selectedProducts.length} produtos incluídos`}
+                      </p>
+                    </div>
+                  </div>
+                  <Badge className="bg-white text-slate-950 text-xs px-3 py-1 font-extrabold">
+                    {selectedProducts.length} Itens
+                  </Badge>
+                </Button>
+              </div>
             </div>
 
             {/* ETAPA 2 & 3: VISÃO DOS PRODUTOS INCLUÍDOS E QUANTIDADES POR FILIAL */}
             {selectedProducts.length === 0 ? (
-              <div className="text-center py-20 border-2 border-dashed border-slate-800 rounded-2xl text-slate-500 space-y-4 bg-slate-950/20">
+              <div className="text-center py-16 border-2 border-dashed border-slate-800 rounded-2xl text-slate-500 space-y-4 bg-slate-950/20">
                 <Package size={48} className="mx-auto text-slate-700 opacity-60" />
                 <div className="space-y-1">
                   <p className="text-base font-bold text-slate-300">Nenhum produto incluído na distribuição</p>
                   <p className="text-xs text-slate-500">
                     {distributionType === 'epi'
-                      ? 'Clique no botão acima para abrir o catálogo filtrado da categoria EPIs.'
-                      : 'Clique no botão acima para abrir o catálogo e selecionar os itens a serem distribuídos.'}
+                      ? 'Clique no botão "Catálogo de Produtos" acima para escolher os EPIs.'
+                      : 'Clique no botão "Catálogo de Produtos" acima para selecionar os itens a serem distribuídos.'}
                   </p>
                 </div>
                 <Button 
                   onClick={() => setIsCatalogOpen(true)} 
                   variant="outline" 
-                  className={`font-bold ${distributionType === 'epi' ? 'border-emerald-500/40 text-emerald-400' : 'border-slate-700 text-cyan-400'}`}
+                  className={`font-bold ${distributionType === 'epi' ? 'border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10' : 'border-slate-700 text-cyan-400 hover:bg-cyan-500/10'}`}
                 >
                   <Plus size={16} className="mr-2" /> Abrir Catálogo de Produtos
                 </Button>
               </div>
             ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                
-                {/* LISTA LATERAL DE PRODUTOS SELECIONADOS */}
-                <div className="lg:col-span-4 space-y-3">
-                  <div className="flex items-center justify-between mb-1">
-                    <Label className="text-xs font-bold uppercase text-slate-400 tracking-widest">
-                      Produtos Incluídos ({selectedProducts.length})
-                    </Label>
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      className={`h-6 text-[10px] font-bold ${distributionType === 'epi' ? 'text-emerald-400 hover:bg-emerald-500/10' : 'text-cyan-400 hover:bg-cyan-500/10'}`}
-                      onClick={() => setIsCatalogOpen(true)}
-                    >
-                      <Plus size={12} className="mr-1" /> Mais Produtos
-                    </Button>
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                  
+                  {/* LISTA LATERAL DE PRODUTOS SELECIONADOS */}
+                  <div className="lg:col-span-4 space-y-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <Label className="text-xs font-bold uppercase text-slate-400 tracking-widest">
+                        Produtos Incluídos ({selectedProducts.length})
+                      </Label>
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className={`h-6 text-[10px] font-bold ${distributionType === 'epi' ? 'text-emerald-400 hover:bg-emerald-500/10' : 'text-cyan-400 hover:bg-cyan-500/10'}`}
+                        onClick={() => setIsCatalogOpen(true)}
+                      >
+                        <Plus size={12} className="mr-1" /> Mais Produtos
+                      </Button>
+                    </div>
+
+                    <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1 custom-scrollbar">
+                      {selectedProducts.map(productId => {
+                        const prod = products.find(p => p.id === productId);
+                        const isSelected = activeProductId === productId;
+                        const productAlloc = allocations[productId] || {};
+                        const totalAllocated = Object.values(productAlloc).reduce((a, b) => (a as number) + (b as number), 0) as number;
+
+                        return (
+                          <div
+                            key={productId}
+                            onClick={() => setActiveProductId(productId)}
+                            className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
+                              isSelected 
+                                ? distributionType === 'epi'
+                                  ? 'bg-emerald-500/10 border-emerald-500/60 text-white shadow-lg'
+                                  : 'bg-cyan-500/10 border-cyan-500/60 text-white shadow-lg' 
+                                : 'bg-slate-950/40 border-slate-800/80 hover:bg-slate-800/50 text-slate-300'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3 overflow-hidden">
+                              <div className="w-10 h-10 rounded-lg bg-slate-900 flex items-center justify-center text-cyan-400 border border-slate-800 flex-shrink-0">
+                                {prod?.image ? (
+                                  <img src={prod.image} alt="" className="w-full h-full object-cover rounded-lg" referrerPolicy="no-referrer" />
+                                ) : (
+                                  <Package size={18} />
+                                )}
+                              </div>
+                              <div className="truncate">
+                                <p className="font-bold text-sm truncate">{prod?.name}</p>
+                                <div className="flex items-center gap-2 text-xs">
+                                  <span className="font-mono text-cyan-500/80">{prod?.code}</span>
+                                  <span className="text-slate-500">•</span>
+                                  <span className="text-slate-400">Distribuído: <strong className={distributionType === 'epi' ? 'text-emerald-400' : 'text-cyan-400'}>{totalAllocated}</strong> {prod?.unit}</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 flex-shrink-0"
+                              onClick={(e) => handleRemoveProduct(productId, e)}
+                            >
+                              <X size={14} />
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
 
-                  <div className="space-y-2 max-h-[480px] overflow-y-auto pr-1 custom-scrollbar">
-                    {selectedProducts.map(productId => {
-                      const prod = products.find(p => p.id === productId);
-                      const isSelected = activeProductId === productId;
-                      const productAlloc = allocations[productId] || {};
-                      const totalAllocated = Object.values(productAlloc).reduce((a, b) => (a as number) + (b as number), 0) as number;
-
-                      return (
-                        <div
-                          key={productId}
-                          onClick={() => setActiveProductId(productId)}
-                          className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
-                            isSelected 
-                              ? distributionType === 'epi'
-                                ? 'bg-emerald-500/10 border-emerald-500/60 text-white shadow-lg'
-                                : 'bg-cyan-500/10 border-cyan-500/60 text-white shadow-lg' 
-                              : 'bg-slate-950/40 border-slate-800/80 hover:bg-slate-800/50 text-slate-300'
-                          }`}
-                        >
-                          <div className="flex items-center gap-3 overflow-hidden">
-                            <div className="w-10 h-10 rounded-lg bg-slate-900 flex items-center justify-center text-cyan-400 border border-slate-800 flex-shrink-0">
-                              {prod?.image ? (
-                                <img src={prod.image} alt="" className="w-full h-full object-cover rounded-lg" referrerPolicy="no-referrer" />
+                  {/* PAINEL PRINCIPAL DO PRODUTO ATIVO */}
+                  <div className="lg:col-span-8 bg-slate-950/60 p-6 rounded-xl border border-slate-800 space-y-6">
+                    {activeProduct ? (
+                      <>
+                        {/* HEADER DO PRODUTO ATIVO */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+                          <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 rounded-xl bg-slate-900 border border-slate-700 flex items-center justify-center text-cyan-400 shadow-md">
+                              {activeProduct.image ? (
+                                <img src={activeProduct.image} alt="" className="w-full h-full object-cover rounded-xl" referrerPolicy="no-referrer" />
                               ) : (
-                                <Package size={18} />
+                                <Package size={24} />
                               )}
                             </div>
-                            <div className="truncate">
-                              <p className="font-bold text-sm truncate">{prod?.name}</p>
-                              <div className="flex items-center gap-2 text-xs">
-                                <span className="font-mono text-cyan-500/80">{prod?.code}</span>
-                                <span className="text-slate-500">•</span>
-                                <span className="text-slate-400">Distribuído: <strong className={distributionType === 'epi' ? 'text-emerald-400' : 'text-cyan-400'}>{totalAllocated}</strong> {prod?.unit}</span>
+                            <div>
+                              <h4 className="text-lg font-bold text-white">{activeProduct.name}</h4>
+                              <div className="flex items-center gap-3 text-xs text-slate-400 mt-0.5">
+                                <span className="font-mono font-bold text-cyan-400">{activeProduct.code}</span>
+                                <span>•</span>
+                                <Badge variant="outline" className="text-[10px] bg-slate-900 border-slate-800 text-slate-300">
+                                  {activeProduct.category}
+                                </Badge>
                               </div>
                             </div>
                           </div>
 
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 flex-shrink-0"
-                            onClick={(e) => handleRemoveProduct(productId, e)}
-                          >
-                            <X size={14} />
-                          </Button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* PAINEL PRINCIPAL DO PRODUTO ATIVO */}
-                <div className="lg:col-span-8 bg-slate-950/60 p-6 rounded-xl border border-slate-800 space-y-6">
-                  {activeProduct ? (
-                    <>
-                      {/* HEADER DO PRODUTO ATIVO */}
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
-                        <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 rounded-xl bg-slate-900 border border-slate-700 flex items-center justify-center text-cyan-400 shadow-md">
-                            {activeProduct.image ? (
-                              <img src={activeProduct.image} alt="" className="w-full h-full object-cover rounded-xl" referrerPolicy="no-referrer" />
-                            ) : (
-                              <Package size={24} />
-                            )}
-                          </div>
-                          <div>
-                            <h4 className="text-lg font-bold text-white">{activeProduct.name}</h4>
-                            <div className="flex items-center gap-3 text-xs text-slate-400 mt-0.5">
-                              <span className="font-mono font-bold text-cyan-400">{activeProduct.code}</span>
-                              <span>•</span>
-                              <Badge variant="outline" className="text-[10px] bg-slate-900 border-slate-800 text-slate-300">
-                                {activeProduct.category}
-                              </Badge>
+                          <div className="flex items-center gap-4 bg-slate-900 p-3 rounded-lg border border-slate-800">
+                            <div className="text-right">
+                              <p className="text-[10px] font-bold text-slate-500 uppercase">Estoque Central</p>
+                              <p className="text-sm font-bold text-emerald-400">{activeProduct.currentStock} {activeProduct.unit}</p>
+                            </div>
+                            <div className="w-px h-8 bg-slate-800" />
+                            <div className="text-right">
+                              <p className="text-[10px] font-bold text-slate-500 uppercase">Total Alocado</p>
+                              <p className={`text-sm font-bold ${distributionType === 'epi' ? 'text-emerald-400' : 'text-cyan-400'}`}>
+                                {Object.values(allocations[activeProduct.id] || {}).reduce((a, b) => (a as number) + (b as number), 0)} {activeProduct.unit}
+                              </p>
                             </div>
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-4 bg-slate-900 p-3 rounded-lg border border-slate-800">
-                          <div className="text-right">
-                            <p className="text-[10px] font-bold text-slate-500 uppercase">Estoque Central</p>
-                            <p className="text-sm font-bold text-emerald-400">{activeProduct.currentStock} {activeProduct.unit}</p>
-                          </div>
-                          <div className="w-px h-8 bg-slate-800" />
-                          <div className="text-right">
-                            <p className="text-[10px] font-bold text-slate-500 uppercase">Total Alocado</p>
-                            <p className={`text-sm font-bold ${distributionType === 'epi' ? 'text-emerald-400' : 'text-cyan-400'}`}>
-                              {Object.values(allocations[activeProduct.id] || {}).reduce((a, b) => (a as number) + (b as number), 0)} {activeProduct.unit}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* CAMPO DE QUANTIDADE EM CIMA COM BOTÃO COPIAR PARA TODAS AS FILIAIS */}
-                      <div className="bg-gradient-to-r from-slate-900 via-slate-900 to-slate-900 p-4 rounded-xl border border-slate-700 space-y-3 shadow-lg">
-                        <div className="flex items-center justify-between">
-                          <Label className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-2">
-                            <Copy size={14} /> Quantidade Padrão para Copiar em Massa
-                          </Label>
-                          <span className="text-[11px] text-slate-400">
-                            Aplica a quantidade a todas as <strong>{selectedBranchIds.length}</strong> filiais
-                          </span>
-                        </div>
-
-                        <div className="flex flex-col sm:flex-row items-center gap-3">
-                          <div className="relative w-full sm:w-48">
-                            <Input
-                              type="number"
-                              min="0"
-                              placeholder="Digite a qtd..."
-                              className="h-11 bg-slate-950 border-slate-700 focus:border-cyan-400 text-white font-bold text-lg"
-                              value={templateQuantities[activeProduct.id] ?? ''}
-                              onChange={e => setTemplateQuantities({
-                                ...templateQuantities,
-                                [activeProduct.id]: Math.max(0, Number(e.target.value))
-                              })}
-                            />
-                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-500">
-                              {activeProduct.unit}
+                        {/* CAMPO DE QUANTIDADE EM CIMA COM BOTÃO COPIAR PARA TODAS AS FILIAIS */}
+                        <div className="bg-gradient-to-r from-slate-900 via-slate-900 to-slate-900 p-4 rounded-xl border border-slate-700 space-y-3 shadow-lg">
+                          <div className="flex items-center justify-between">
+                            <Label className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-2">
+                              <Copy size={14} /> Quantidade Padrão para Copiar em Massa
+                            </Label>
+                            <span className="text-[11px] text-slate-400">
+                              Aplica a quantidade a todas as <strong>{selectedBranchIds.length}</strong> filiais
                             </span>
                           </div>
 
-                          <Button
-                            type="button"
-                            onClick={() => handleCopyTemplateToAllBranches(activeProduct.id)}
-                            className={`w-full sm:w-auto h-11 text-white font-bold px-6 rounded-lg border-none flex items-center justify-center gap-2 ${
-                              distributionType === 'epi' 
-                                ? 'bg-emerald-500 hover:bg-emerald-400 shadow-md shadow-emerald-500/20' 
-                                : 'bg-cyan-500 hover:bg-cyan-400 shadow-md shadow-cyan-500/20'
-                            }`}
-                          >
-                            <Copy size={16} />
-                            <span>Copiar para Todas ({selectedBranchIds.length} Filiais)</span>
-                          </Button>
-                        </div>
-                      </div>
+                          <div className="flex flex-col sm:flex-row items-center gap-3">
+                            <div className="relative w-full sm:w-48">
+                              <Input
+                                type="number"
+                                min="0"
+                                placeholder="Digite a qtd..."
+                                className="h-11 bg-slate-950 border-slate-700 focus:border-cyan-400 text-white font-bold text-lg"
+                                value={templateQuantities[activeProduct.id] ?? ''}
+                                onChange={e => setTemplateQuantities({
+                                  ...templateQuantities,
+                                  [activeProduct.id]: Math.max(0, Number(e.target.value))
+                                })}
+                              />
+                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-500">
+                                {activeProduct.unit}
+                              </span>
+                            </div>
 
-                      {/* AVISO E FERRAMENTAS DE RECEBEDOR PARA EPI */}
-                      {distributionType === 'epi' && (
-                        <div className="bg-emerald-950/30 border border-emerald-500/20 p-3 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-                          <span className="text-emerald-300 font-medium flex items-center gap-2">
-                            <User size={15} /> Preencha o nome de quem receberá o EPI na frente de cada filial:
-                          </span>
-                          <div className="flex items-center gap-2">
-                            <Button 
-                              type="button" 
-                              variant="outline" 
-                              size="sm" 
-                              onClick={handleUseBranchManagers}
-                              className="h-7 text-[10px] border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/20 font-bold"
+                            <Button
+                              type="button"
+                              onClick={() => handleCopyTemplateToAllBranches(activeProduct.id)}
+                              className={`w-full sm:w-auto h-11 text-white font-bold px-6 rounded-lg border-none flex items-center justify-center gap-2 ${
+                                distributionType === 'epi' 
+                                  ? 'bg-emerald-500 hover:bg-emerald-400 shadow-md shadow-emerald-500/20' 
+                                  : 'bg-cyan-500 hover:bg-cyan-400 shadow-md shadow-cyan-500/20'
+                              }`}
                             >
-                              Usar Gerentes de Loja
+                              <Copy size={16} />
+                              <span>Copiar para Todas ({selectedBranchIds.length} Filiais)</span>
                             </Button>
-                            {selectedBranchIds.length > 0 && recipients[selectedBranchIds[0]] && (
+                          </div>
+                        </div>
+
+                        {/* AVISO E FERRAMENTAS DE RECEBEDOR PARA EPI */}
+                        {distributionType === 'epi' && (
+                          <div className="bg-emerald-950/30 border border-emerald-500/20 p-3 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                            <span className="text-emerald-300 font-medium flex items-center gap-2">
+                              <User size={15} /> Preencha o nome de quem receberá o EPI na frente de cada filial:
+                            </span>
+                            <div className="flex items-center gap-2">
                               <Button 
                                 type="button" 
                                 variant="outline" 
                                 size="sm" 
-                                onClick={() => handleCopyRecipientToAll(selectedBranchIds[0])}
+                                onClick={handleUseBranchManagers}
                                 className="h-7 text-[10px] border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/20 font-bold"
                               >
-                                Copiar 1º Nome para Todos
+                                Usar Gerentes de Loja
                               </Button>
+                              {selectedBranchIds.length > 0 && recipients[selectedBranchIds[0]] && (
+                                <Button 
+                                  type="button" 
+                                  variant="outline" 
+                                  size="sm" 
+                                  onClick={() => handleCopyRecipientToAll(selectedBranchIds[0])}
+                                  className="h-7 text-[10px] border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/20 font-bold"
+                                >
+                                  Copiar 1º Nome para Todos
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* LISTA DE FILIAIS SELECIONADAS COM CAMPOS DE QUANTIDADE E RECEBEDOR */}
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between">
+                            <Label className="text-xs font-bold uppercase text-slate-400 tracking-widest">
+                              Configuração por Filial ({selectedBranchIds.length} Filiais)
+                            </Label>
+                            <span className="text-[10px] text-slate-500">Edite as quantidades e nomes individualmente abaixo.</span>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[300px] overflow-y-auto pr-1 custom-scrollbar">
+                            {selectedBranchIds.map(branchId => {
+                              const branch = branches.find(b => b.id === branchId);
+                              const currentQty = allocations[activeProduct.id]?.[branchId] ?? 0;
+
+                              return (
+                                <div
+                                  key={branchId}
+                                  className={`p-3.5 rounded-xl border transition-colors space-y-2.5 ${
+                                    currentQty > 0 
+                                      ? distributionType === 'epi'
+                                        ? 'bg-slate-900 border-emerald-500/40 shadow-sm'
+                                        : 'bg-slate-900 border-cyan-500/40 shadow-sm' 
+                                      : 'bg-slate-950/50 border-slate-800'
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <Label className="text-xs font-bold text-slate-200 truncate block">
+                                      {branch?.name || 'Filial'}
+                                    </Label>
+                                    {branch?.manager && (
+                                      <span className="text-[10px] text-slate-500">Gerente: {branch.manager}</span>
+                                    )}
+                                  </div>
+
+                                  <div className="grid grid-cols-1 gap-2">
+                                    {/* CAMPO DE QUANTIDADE */}
+                                    <div className="relative">
+                                      <Input
+                                        type="number"
+                                        min="0"
+                                        placeholder="Qtd..."
+                                        className="h-10 bg-slate-950 border-slate-700 text-white font-bold text-sm focus:border-cyan-400"
+                                        value={allocations[activeProduct.id]?.[branchId] ?? ''}
+                                        onChange={e => handleQuantityChange(activeProduct.id, branchId, Number(e.target.value))}
+                                      />
+                                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-500">
+                                        {activeProduct.unit}
+                                      </span>
+                                    </div>
+
+                                    {/* CAMPO DE RECEBEDOR DO EPI */}
+                                    {distributionType === 'epi' && (
+                                      <div className="relative">
+                                        <Input
+                                          type="text"
+                                          placeholder="Nome da pessoa que vai receber o EPI..."
+                                          className="h-9 bg-slate-950 border-emerald-500/30 text-emerald-200 text-xs focus:border-emerald-400 pl-8"
+                                          value={recipients[branchId] || ''}
+                                          onChange={e => setRecipients({ ...recipients, [branchId]: e.target.value })}
+                                        />
+                                        <User size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-emerald-500/70" />
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+
+                            {selectedBranchIds.length === 0 && (
+                              <div className="col-span-full py-8 text-center text-slate-500 text-xs">
+                                Nenhuma filial selecionada no botão "Filiais" acima.
+                              </div>
                             )}
                           </div>
                         </div>
-                      )}
-
-                      {/* LISTA DE FILIAIS SELECIONADAS COM CAMPOS DE QUANTIDADE E RECEBEDOR */}
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <Label className="text-xs font-bold uppercase text-slate-400 tracking-widest">
-                            Configuração por Filial ({selectedBranchIds.length} Filiais)
-                          </Label>
-                          <span className="text-[10px] text-slate-500">Edite as quantidades e nomes individualmente abaixo.</span>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[340px] overflow-y-auto pr-1 custom-scrollbar">
-                          {selectedBranchIds.map(branchId => {
-                            const branch = branches.find(b => b.id === branchId);
-                            const currentQty = allocations[activeProduct.id]?.[branchId] ?? 0;
-
-                            return (
-                              <div
-                                key={branchId}
-                                className={`p-3.5 rounded-xl border transition-colors space-y-2.5 ${
-                                  currentQty > 0 
-                                    ? distributionType === 'epi'
-                                      ? 'bg-slate-900 border-emerald-500/40 shadow-sm'
-                                      : 'bg-slate-900 border-cyan-500/40 shadow-sm' 
-                                    : 'bg-slate-950/50 border-slate-800'
-                                }`}
-                              >
-                                <div className="flex items-center justify-between">
-                                  <Label className="text-xs font-bold text-slate-200 truncate block">
-                                    {branch?.name || 'Filial'}
-                                  </Label>
-                                  {branch?.manager && (
-                                    <span className="text-[10px] text-slate-500">Gerente: {branch.manager}</span>
-                                  )}
-                                </div>
-
-                                <div className="grid grid-cols-1 gap-2">
-                                  {/* CAMPO DE QUANTIDADE */}
-                                  <div className="relative">
-                                    <Input
-                                      type="number"
-                                      min="0"
-                                      placeholder="Qtd..."
-                                      className="h-10 bg-slate-950 border-slate-700 text-white font-bold text-sm focus:border-cyan-400"
-                                      value={allocations[activeProduct.id]?.[branchId] ?? ''}
-                                      onChange={e => handleQuantityChange(activeProduct.id, branchId, Number(e.target.value))}
-                                    />
-                                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-500">
-                                      {activeProduct.unit}
-                                    </span>
-                                  </div>
-
-                                  {/* CAMPO DE RECEBEDOR DO EPI */}
-                                  {distributionType === 'epi' && (
-                                    <div className="relative">
-                                      <Input
-                                        type="text"
-                                        placeholder="Nome da pessoa que vai receber o EPI..."
-                                        className="h-9 bg-slate-950 border-emerald-500/30 text-emerald-200 text-xs focus:border-emerald-400 pl-8"
-                                        value={recipients[branchId] || ''}
-                                        onChange={e => setRecipients({ ...recipients, [branchId]: e.target.value })}
-                                      />
-                                      <User size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-emerald-500/70" />
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })}
-
-                          {selectedBranchIds.length === 0 && (
-                            <div className="col-span-full py-8 text-center text-slate-500 text-xs">
-                              Nenhuma filial selecionada no dropdown acima.
-                            </div>
-                          )}
-                        </div>
+                      </>
+                    ) : (
+                      <div className="py-20 text-center text-slate-500 space-y-2">
+                        <Package size={36} className="mx-auto text-slate-700" />
+                        <p className="text-sm font-medium">Selecione um produto na lista à esquerda para configurar suas quantidades.</p>
                       </div>
-                    </>
-                  ) : (
-                    <div className="py-20 text-center text-slate-500 space-y-2">
-                      <Package size={36} className="mx-auto text-slate-700" />
-                      <p className="text-sm font-medium">Selecione um produto na lista à esquerda para configurar suas quantidades.</p>
-                    </div>
-                  )}
+                    )}
+                  </div>
+
                 </div>
 
+                {/* RESUMO NA PARTE INFERIOR PARA AJUSTES DE QUANTIDADE */}
+                <div className="bg-slate-950/80 p-5 rounded-xl border border-slate-800 space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+                    <div>
+                      <h4 className="text-base font-bold text-white flex items-center gap-2">
+                        <FileText size={18} className="text-cyan-400" />
+                        Resumo da Distribuição & Consolidado de Quantidades
+                      </h4>
+                      <p className="text-xs text-slate-400">
+                        Visão sintética das quantidades totais alocadas por produto e validação de estoque central.
+                      </p>
+                    </div>
+                    <Badge className="bg-slate-900 border-slate-700 text-slate-300 text-xs font-mono self-start sm:self-auto">
+                      {selectedBranchIds.length} Filiais Participantes
+                    </Badge>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="border-b border-slate-800 hover:bg-transparent text-[11px] font-bold uppercase text-slate-400">
+                          <TableHead className="text-slate-400">Produto</TableHead>
+                          <TableHead className="text-slate-400">Estoque Central</TableHead>
+                          <TableHead className="text-slate-400">Filiais Atendidas</TableHead>
+                          <TableHead className="text-slate-400">Total Alocado</TableHead>
+                          <TableHead className="text-slate-400">Status do Estoque</TableHead>
+                          <TableHead className="text-right text-slate-400">Ações</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {selectedProducts.map(pId => {
+                          const prod = products.find(p => p.id === pId);
+                          const productAlloc = allocations[pId] || {};
+                          const totalQty = Object.values(productAlloc).reduce((a, b) => (a as number) + (b as number), 0) as number;
+                          const branchesCount = Object.values(productAlloc).filter(v => (v as number) > 0).length;
+                          const stockExceeded = totalQty > (prod?.currentStock || 0);
+
+                          return (
+                            <TableRow key={pId} className="border-b border-slate-800/60 hover:bg-slate-900/50">
+                              <TableCell>
+                                <div className="flex items-center gap-3">
+                                  <div className="w-8 h-8 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-center text-cyan-400 flex-shrink-0">
+                                    {prod?.image ? (
+                                      <img src={prod.image} alt="" className="w-full h-full object-cover rounded-lg" referrerPolicy="no-referrer" />
+                                    ) : (
+                                      <Package size={16} />
+                                    )}
+                                  </div>
+                                  <div>
+                                    <p className="font-bold text-xs text-white">{prod?.name}</p>
+                                    <p className="text-[10px] font-mono text-cyan-400">{prod?.code}</p>
+                                  </div>
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-xs font-bold text-emerald-400">
+                                {prod?.currentStock} {prod?.unit}
+                              </TableCell>
+                              <TableCell className="text-xs text-slate-300">
+                                {branchesCount} de {selectedBranchIds.length} filiais
+                              </TableCell>
+                              <TableCell className="text-xs font-extrabold text-cyan-300">
+                                {totalQty} {prod?.unit}
+                              </TableCell>
+                              <TableCell>
+                                {stockExceeded ? (
+                                  <Badge className="bg-rose-500/20 text-rose-300 border-rose-500/40 text-[10px] font-bold gap-1">
+                                    <AlertCircle size={12} /> Excede o Estoque Central
+                                  </Badge>
+                                ) : (
+                                  <Badge className="bg-emerald-500/15 text-emerald-300 border-emerald-500/30 text-[10px] font-bold gap-1">
+                                    <CheckCircle2 size={12} /> Estoque Suficiente
+                                  </Badge>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <div className="flex items-center justify-end gap-1">
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => setActiveProductId(pId)}
+                                    className={`h-7 text-[11px] font-bold ${activeProductId === pId ? 'text-cyan-400 bg-cyan-500/10' : 'text-slate-400 hover:text-white'}`}
+                                  >
+                                    Ajustar Qtds
+                                  </Button>
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    onClick={(e) => handleRemoveProduct(pId, e)}
+                                    className="h-7 w-7 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10"
+                                  >
+                                    <X size={14} />
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -1744,51 +2150,176 @@ function DistributionTab() {
         </DialogContent>
       </Dialog>
 
-      {/* MODAL 2: CATÁLOGO DE PRODUTOS PARA DISTRIBUIÇÃO */}
-      <Dialog open={isCatalogOpen} onOpenChange={setIsCatalogOpen}>
-        <DialogContent className="sm:max-w-[850px] bg-slate-900 border-slate-800 text-white rounded-xl shadow-2xl p-0 overflow-hidden max-h-[85vh] flex flex-col">
-          <DialogHeader className="p-6 bg-slate-950 border-b border-slate-800">
-            <DialogTitle className="text-xl font-bold text-white flex items-center gap-3">
-              <Package className={distributionType === 'epi' ? 'text-emerald-400' : 'text-cyan-400'} size={22} />
-              Catálogo de Produtos para Distribuição {distributionType === 'epi' && '(Filtro EPIs Ativo)'}
-            </DialogTitle>
-            <p className="text-xs text-slate-400 mt-1">
-              {distributionType === 'epi' 
-                ? 'Exibindo apenas produtos pertencentes à categoria EPIs.' 
-                : 'Clique nos produtos para inclúi-los na distribuição em massa.'}
-            </p>
-          </DialogHeader>
-
-          <div className="p-6 space-y-4 flex-1 overflow-y-auto custom-scrollbar">
-            {/* BUSCA E FILTROS DO CATÁLOGO */}
-            <div className="flex flex-col sm:flex-row gap-4">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={16} />
-                <Input
-                  placeholder="Buscar produto por nome ou código..."
-                  className="pl-10 h-11 bg-slate-950 border-slate-800 text-slate-200"
-                  value={catalogSearch}
-                  onChange={e => setCatalogSearch(e.target.value)}
-                />
+      {/* MODAL: SELEÇÃO DE FILIAIS (CENTRALIZADO NA TELA) */}
+      <Dialog open={isBranchesModalOpen} onOpenChange={setIsBranchesModalOpen}>
+        <DialogContent className="w-[96vw] max-w-7xl h-[92vh] max-h-[92vh] bg-slate-950 border border-slate-800 text-white p-0 flex flex-col z-[100] rounded-xl shadow-2xl overflow-hidden">
+          {/* HEADER COMPACTO */}
+          <DialogHeader className="px-4 py-2.5 bg-slate-900 border-b border-slate-800 flex-shrink-0">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Building2 className="text-cyan-400 flex-shrink-0" size={18} />
+                <DialogTitle className="text-sm sm:text-base font-bold text-white">
+                  Seleção de Filiais Cadastradas ({branches.length} Filiais)
+                </DialogTitle>
               </div>
 
-              {distributionType !== 'epi' && (
-                <Select value={catalogCategory} onValueChange={setCatalogCategory}>
-                  <SelectTrigger className="w-full sm:w-56 h-11 bg-slate-950 border-slate-800 text-slate-300">
-                    <SelectValue placeholder="Classificação..." />
-                  </SelectTrigger>
-                  <SelectContent className="bg-slate-900 border-slate-800 text-slate-300">
-                    <SelectItem value="all">Todas Classificações</SelectItem>
-                    {(productClassifications || []).map(c => (
-                      <SelectItem key={c} value={c}>{c}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
+              <Badge className="bg-cyan-500/20 text-cyan-300 border-cyan-500/40 text-[11px] px-2.5 py-0.5 font-bold flex gap-1.5 items-center flex-shrink-0">
+                <CheckSquare size={13} />
+                <span>{selectedBranchIds.length} de {branches.length} Selecionadas</span>
+              </Badge>
+            </div>
+          </DialogHeader>
+
+          {/* BARRA DE PESQUISA E BOTÕES COMPACTOS */}
+          <div className="px-4 py-2 bg-slate-900/60 border-b border-slate-800 flex flex-col sm:flex-row gap-2 items-center justify-between flex-shrink-0">
+            <div className="relative w-full sm:w-80">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" size={14} />
+              <Input
+                placeholder="Buscar filial por nome ou código..."
+                className="pl-8 h-8 text-xs bg-slate-950 border-slate-700 text-white font-medium rounded-lg"
+                value={branchSearch}
+                onChange={e => setBranchSearch(e.target.value)}
+              />
             </div>
 
-            {/* LISTA DE CARDS DE PRODUTOS */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 pt-2">
+            <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleSelectAllBranches}
+                className="h-8 px-3 border-cyan-500/40 text-cyan-400 hover:bg-cyan-500/10 font-bold text-[11px] gap-1.5 rounded-lg"
+              >
+                <CheckSquare size={13} />
+                Marcar Todas ({branches.length})
+              </Button>
+
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleDeselectAllBranches}
+                className="h-8 px-3 border-slate-700 text-slate-400 hover:bg-slate-800 font-bold text-[11px] gap-1.5 rounded-lg"
+              >
+                <Square size={13} />
+                Desmarcar Todas
+              </Button>
+            </div>
+          </div>
+
+          {/* LISTA DE FILIAIS EM GRID/LISTA DE ALTA DENSIDADE (FONT SIZE 12PX) */}
+          <div className="flex-1 overflow-y-auto p-3 custom-scrollbar bg-slate-950">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-1.5">
+              {filteredBranches.map(branch => {
+                const isSelected = selectedBranchIds.includes(branch.id);
+                return (
+                  <div
+                    key={branch.id}
+                    onClick={() => toggleBranchSelection(branch.id)}
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-md border cursor-pointer transition-all ${
+                      isSelected
+                        ? 'bg-cyan-500/15 border-cyan-500/60 text-cyan-200 font-semibold shadow-sm'
+                        : 'bg-slate-900/50 border-slate-800/80 hover:bg-slate-800/60 text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className={`w-3.5 h-3.5 rounded flex items-center justify-center border transition-all flex-shrink-0 ${
+                        isSelected ? 'bg-cyan-500 border-cyan-400 text-slate-950' : 'bg-slate-950 border-slate-700 text-transparent'
+                      }`}>
+                        <Check size={10} strokeWidth={3.5} />
+                      </div>
+
+                      <span className="text-[12px] leading-tight truncate font-medium">
+                        {branch.name}
+                      </span>
+                    </div>
+
+                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0 ${
+                      isSelected ? 'text-cyan-400 bg-cyan-500/10' : 'text-slate-500'
+                    }`}>
+                      {isSelected ? '✓ Selecionada' : 'Não selecionada'}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {filteredBranches.length === 0 && (
+              <div className="py-12 text-center text-slate-500 space-y-2">
+                <Building2 size={32} className="mx-auto opacity-40 text-slate-600" />
+                <p className="text-xs font-bold text-slate-400">Nenhuma filial encontrada para "{branchSearch}".</p>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="px-4 py-2.5 bg-slate-900 border-t border-slate-800 flex justify-between items-center flex-shrink-0">
+            <div className="text-xs font-medium text-slate-300">
+              <strong className="text-cyan-400 text-sm">{selectedBranchIds.length}</strong> filiais selecionadas para esta distribuição
+            </div>
+
+            <Button
+              onClick={() => setIsBranchesModalOpen(false)}
+              className="bg-cyan-500 hover:bg-cyan-400 text-white font-bold px-5 h-9 text-xs rounded-lg shadow-md shadow-cyan-500/20 border-none gap-1.5"
+            >
+              <Check size={16} />
+              Confirmar Seleção de Filiais
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* MODAL: CATÁLOGO DE PRODUTOS (CENTRALIZADO NA TELA) */}
+      <Dialog open={isCatalogOpen} onOpenChange={setIsCatalogOpen}>
+        <DialogContent className="w-[96vw] max-w-7xl h-[90vh] max-h-[90vh] bg-slate-950 border border-slate-800 text-white p-0 flex flex-col z-[100] rounded-2xl shadow-2xl overflow-hidden">
+          <DialogHeader className="p-6 bg-slate-900/90 border-b border-slate-800 flex-shrink-0">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <DialogTitle className="text-2xl font-bold text-white flex items-center gap-3">
+                  <Package className={distributionType === 'epi' ? 'text-emerald-400' : 'text-cyan-400'} size={28} />
+                  Catálogo de Produtos {distributionType === 'epi' && '(Modo EPIs)'}
+                </DialogTitle>
+                <p className="text-sm text-slate-400 mt-1">
+                  Selecione os produtos do catálogo para incluir na distribuição em massa.
+                </p>
+              </div>
+
+              <Badge className={`text-sm px-4 py-2 font-bold flex gap-2 items-center self-start sm:self-auto ${
+                distributionType === 'epi' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' : 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+              }`}>
+                <Package size={16} />
+                <span>{selectedProducts.length} Produtos Incluídos</span>
+              </Badge>
+            </div>
+          </DialogHeader>
+
+          {/* BUSCA E FILTROS DO CATÁLOGO */}
+          <div className="px-6 py-4 bg-slate-900/50 border-b border-slate-800 flex flex-col sm:flex-row gap-4 items-center justify-between flex-shrink-0">
+            <div className="relative flex-1 w-full">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+              <Input
+                placeholder="Buscar produto por nome, código ou categoria..."
+                className="pl-11 h-11 bg-slate-950 border-slate-700 text-white font-medium"
+                value={catalogSearch}
+                onChange={e => setCatalogSearch(e.target.value)}
+              />
+            </div>
+
+            {distributionType !== 'epi' && (
+              <Select value={catalogCategory} onValueChange={setCatalogCategory}>
+                <SelectTrigger className="w-full sm:w-64 h-11 bg-slate-950 border-slate-700 text-slate-200 font-bold">
+                  <SelectValue placeholder="Todas as Classificações" />
+                </SelectTrigger>
+                <SelectContent className="bg-slate-900 border-slate-800 text-slate-300">
+                  <SelectItem value="all">Todas Classificações</SelectItem>
+                  {(productClassifications || []).map(c => (
+                    <SelectItem key={c} value={c}>{c}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+
+          {/* QUADRO COM TODOS OS PRODUTOS OCUPANDO TODA A TELA */}
+          <div className="flex-1 overflow-y-auto p-6 bg-slate-950 custom-scrollbar">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
               {filteredCatalogProducts.map(p => {
                 const isIncluded = selectedProducts.includes(p.id);
 
@@ -1799,9 +2330,9 @@ function DistributionTab() {
                     className={`p-4 rounded-xl border cursor-pointer transition-all flex flex-col justify-between space-y-3 ${
                       isIncluded 
                         ? distributionType === 'epi'
-                          ? 'bg-emerald-500/15 border-emerald-500 text-white shadow-lg ring-1 ring-emerald-500/50'
-                          : 'bg-cyan-500/15 border-cyan-500 text-white shadow-lg ring-1 ring-cyan-500/50' 
-                        : 'bg-slate-950/60 border-slate-800 hover:border-slate-700 text-slate-300'
+                          ? 'bg-emerald-500/15 border-emerald-500 text-white shadow-xl ring-2 ring-emerald-500/50'
+                          : 'bg-cyan-500/15 border-cyan-500 text-white shadow-xl ring-2 ring-cyan-500/50' 
+                        : 'bg-slate-900/60 border-slate-800 hover:border-slate-700 hover:bg-slate-900 text-slate-300'
                     }`}
                   >
                     <div className="flex items-start gap-3">
@@ -1814,7 +2345,7 @@ function DistributionTab() {
                       </div>
                       <div className="overflow-hidden">
                         <h5 className="font-bold text-sm text-white truncate">{p.name}</h5>
-                        <p className="text-xs font-mono text-cyan-400">{p.code}</p>
+                        <p className="text-xs font-mono text-cyan-400 font-bold">{p.code}</p>
                         <Badge variant="outline" className="text-[9px] bg-slate-900 border-slate-800 text-slate-400 mt-1">
                           {p.category}
                         </Badge>
@@ -1822,7 +2353,7 @@ function DistributionTab() {
                     </div>
 
                     <div className="flex items-center justify-between border-t border-slate-800/80 pt-2 text-xs">
-                      <span className="text-slate-400">Estoque: <strong className="text-emerald-400">{p.currentStock} {p.unit}</strong></span>
+                      <span className="text-slate-400">Estoque Central: <strong className="text-emerald-400 font-bold">{p.currentStock} {p.unit}</strong></span>
 
                       {isIncluded ? (
                         <Badge className={`text-white font-bold gap-1 ${distributionType === 'epi' ? 'bg-emerald-500' : 'bg-cyan-500'}`}>
@@ -1839,27 +2370,27 @@ function DistributionTab() {
               })}
 
               {filteredCatalogProducts.length === 0 && (
-                <div className="col-span-full py-12 text-center text-slate-500 space-y-2">
-                  <Package size={36} className="mx-auto opacity-50" />
-                  <p className="font-medium text-slate-400">Nenhum produto encontrado.</p>
-                  {distributionType === 'epi' && (
-                    <p className="text-xs text-slate-500">Verifique se existem produtos cadastrados com a categoria "EPIs".</p>
-                  )}
+                <div className="col-span-full py-20 text-center text-slate-500 space-y-2">
+                  <Package size={44} className="mx-auto opacity-50 text-slate-600" />
+                  <p className="font-medium text-slate-400 text-base">Nenhum produto encontrado.</p>
                 </div>
               )}
             </div>
           </div>
 
-          <DialogFooter className="p-4 bg-slate-950 border-t border-slate-800 flex justify-between items-center">
-            <span className="text-xs text-slate-400 font-medium pl-2">
-              <strong>{selectedProducts.length}</strong> produtos incluídos para distribuição
+          <DialogFooter className="p-5 bg-slate-900 border-t border-slate-800 flex justify-between items-center flex-shrink-0">
+            <span className="text-sm text-slate-300 font-medium">
+              <strong className="text-cyan-400 text-base">{selectedProducts.length}</strong> produtos incluídos para distribuição
             </span>
 
             <Button
               onClick={() => setIsCatalogOpen(false)}
-              className={`font-bold px-6 border-none text-white ${distributionType === 'epi' ? 'bg-emerald-500 hover:bg-emerald-400' : 'bg-cyan-500 hover:bg-cyan-400'}`}
+              className={`font-bold px-8 h-12 text-base rounded-xl shadow-lg border-none text-white gap-2 ${
+                distributionType === 'epi' ? 'bg-emerald-500 hover:bg-emerald-400 shadow-emerald-500/20' : 'bg-cyan-500 hover:bg-cyan-400 shadow-cyan-500/20'
+              }`}
             >
-              Concluir Seleção
+              <Check size={20} />
+              Finalizar Inclusão & Ajustar Quantidades
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2204,6 +2735,282 @@ function DistributionTab() {
                   </Button>
                 </div>
               </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        );
+      })()}
+
+      {/* MODAL 5: IMPRESSÃO DO ROMANEIO DE ENVIO POR SUCURSAL */}
+      {printingRomaneio && (() => {
+        const dist = printingRomaneio.distribution;
+        const branchId = printingRomaneio.selectedBranchId;
+        const branch = branches.find((b) => b.id === branchId);
+        const recipientName = dist.recipients?.[branchId] || branch?.manager || 'Gerente / Responsável';
+
+        const branchItems: Array<{ code: string; productName: string; category: string; unit: string; quantity: number }> = [];
+        dist.items.forEach((item: any) => {
+          const qInfo = item.quantityPerBranch?.find((q: any) => q.branchId === branchId);
+          if (qInfo && qInfo.quantity > 0) {
+            const prod = products.find((p) => p.id === item.productId);
+            branchItems.push({
+              code: prod?.code || 'N/A',
+              productName: prod?.name || 'Produto',
+              category: prod?.category || 'Geral',
+              unit: prod?.unit || 'un',
+              quantity: qInfo.quantity
+            });
+          }
+        });
+
+        return (
+          <Dialog open={!!printingRomaneio} onOpenChange={() => setPrintingRomaneio(null)}>
+            <DialogContent className="sm:max-w-[850px] bg-white text-slate-900 rounded-xl shadow-2xl p-0 overflow-hidden max-h-[92vh] flex flex-col">
+              <DialogHeader className="p-5 bg-slate-900 text-white border-b border-slate-800">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <DialogTitle className="text-xl font-bold text-white flex items-center gap-2">
+                      <Truck className="text-cyan-400" size={22} />
+                      Romaneio de Envio & Guia de Transporte
+                    </DialogTitle>
+                    <p className="text-xs text-slate-300 mt-0.5">
+                      Documento de expedição e controle logístico para a filial {branch?.name || 'Sucursal'}.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Button 
+                      onClick={() => generateDistributionRomaneioPDF(dist, branches, products, branchId, settings?.companyLogo)} 
+                      variant="outline"
+                      className="border-slate-600 text-slate-200 hover:bg-slate-800 font-bold gap-2"
+                    >
+                      <Download size={16} /> Exportar PDF
+                    </Button>
+                    <Button 
+                      onClick={handlePrintDocument} 
+                      className="bg-cyan-500 hover:bg-cyan-400 text-white font-bold gap-2 shadow-md"
+                    >
+                      <Printer size={16} /> Imprimir Romaneio
+                    </Button>
+                  </div>
+                </div>
+              </DialogHeader>
+
+              <div className="p-6 overflow-y-auto space-y-6 text-slate-800 font-sans">
+                {/* Header Preview */}
+                <div className="flex items-center justify-between border-b pb-4 border-slate-200">
+                  <div className="flex items-center gap-3">
+                    {settings?.companyLogo ? (
+                      <img src={settings.companyLogo} alt="Logo" className="h-12 w-auto object-contain" />
+                    ) : (
+                      <div className="w-12 h-12 bg-cyan-600 text-white font-black text-xl rounded-lg flex items-center justify-center">LR</div>
+                    )}
+                    <div>
+                      <h4 className="font-bold text-lg text-slate-900 uppercase tracking-tight">Lojas Ramos - Distribuição Central</h4>
+                      <p className="text-xs text-slate-500">Romaneio de Carga e Guia de Transferência Entre Unidades</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className="font-mono font-bold text-cyan-600 text-lg">#{dist.id.toUpperCase()}</span>
+                    <p className="text-xs text-slate-500">{new Date(dist.createdAt).toLocaleDateString('pt-BR')}</p>
+                  </div>
+                </div>
+
+                {/* Cards Origem / Destino */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-1">
+                    <h5 className="text-xs font-bold uppercase tracking-wider text-slate-500">Origem da Carga</h5>
+                    <p className="font-bold text-slate-900">Almoxarifado & CD Central Matriz</p>
+                    <p className="text-xs text-slate-500">Tipo: <strong>{dist.type === 'epi' ? 'Distribuição de EPIs' : 'Distribuição Geral'}</strong></p>
+                  </div>
+
+                  <div className="bg-cyan-50/80 p-4 rounded-xl border border-cyan-200 space-y-1">
+                    <h5 className="text-xs font-bold uppercase tracking-wider text-cyan-900">Filial Destino</h5>
+                    <p className="font-black text-cyan-950 text-base">{branch?.name?.toUpperCase()}</p>
+                    <p className="text-xs text-cyan-900">Endereço: <strong>{branch?.location || 'Não informado'}</strong></p>
+                    <p className="text-xs text-cyan-900">Gerente/Responsável: <strong>{recipientName}</strong></p>
+                  </div>
+                </div>
+
+                {/* Tabela de Itens */}
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <Table>
+                    <TableHeader className="bg-slate-900 text-white">
+                      <TableRow className="hover:bg-transparent">
+                        <TableHead className="text-white font-bold text-xs">Seq</TableHead>
+                        <TableHead className="text-white font-bold text-xs">Código</TableHead>
+                        <TableHead className="text-white font-bold text-xs">Descrição do Item</TableHead>
+                        <TableHead className="text-white font-bold text-xs text-center">Unid</TableHead>
+                        <TableHead className="text-white font-bold text-xs text-center">Qtd Despachada</TableHead>
+                        <TableHead className="text-white font-bold text-xs text-center">Conferência</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {branchItems.map((item, idx) => (
+                        <TableRow key={idx} className="border-b border-slate-200">
+                          <TableCell className="font-bold text-xs text-center">{idx + 1}</TableCell>
+                          <TableCell className="font-mono text-xs font-bold">{item.code}</TableCell>
+                          <TableCell className="font-medium text-xs text-slate-900">{item.productName}</TableCell>
+                          <TableCell className="text-xs text-center">{item.unit}</TableCell>
+                          <TableCell className="text-xs font-bold text-center text-cyan-700">{item.quantity}</TableCell>
+                          <TableCell className="text-xs text-center font-mono text-slate-400">[ &nbsp; ] OK</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                {/* Assinaturas */}
+                <div className="grid grid-cols-2 gap-8 pt-6 border-t border-slate-200">
+                  <div className="text-center space-y-1">
+                    <div className="border-b border-slate-400 w-full mb-2"></div>
+                    <p className="font-bold text-xs text-slate-900">Expedição / Transportador</p>
+                    <p className="text-[10px] text-slate-500">Conferência de Saída do Estoque Central</p>
+                  </div>
+                  <div className="text-center space-y-1">
+                    <div className="border-b border-slate-400 w-full mb-2"></div>
+                    <p className="font-bold text-xs text-slate-900">{recipientName}</p>
+                    <p className="text-[10px] text-slate-500">Gerente Responsável - {branch?.name}</p>
+                  </div>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        );
+      })()}
+
+      {/* MODAL 6: IMPRESSÃO DO COMPROVANTE DE ENTREGA POR SUCURSAL */}
+      {printingReceipt && (() => {
+        const dist = printingReceipt.distribution;
+        const branchId = printingReceipt.selectedBranchId;
+        const branch = branches.find((b) => b.id === branchId);
+        const recipientName = dist.recipients?.[branchId] || branch?.manager || 'Gerente / Responsável';
+
+        const branchItems: Array<{ code: string; productName: string; category: string; unit: string; quantity: number }> = [];
+        dist.items.forEach((item: any) => {
+          const qInfo = item.quantityPerBranch?.find((q: any) => q.branchId === branchId);
+          if (qInfo && qInfo.quantity > 0) {
+            const prod = products.find((p) => p.id === item.productId);
+            branchItems.push({
+              code: prod?.code || 'N/A',
+              productName: prod?.name || 'Produto',
+              category: prod?.category || 'Geral',
+              unit: prod?.unit || 'un',
+              quantity: qInfo.quantity
+            });
+          }
+        });
+
+        return (
+          <Dialog open={!!printingReceipt} onOpenChange={() => setPrintingReceipt(null)}>
+            <DialogContent className="sm:max-w-[850px] bg-white text-slate-900 rounded-xl shadow-2xl p-0 overflow-hidden max-h-[92vh] flex flex-col">
+              <DialogHeader className="p-5 bg-emerald-950 text-white border-b border-emerald-900">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <DialogTitle className="text-xl font-bold text-white flex items-center gap-2">
+                      <FileText className="text-emerald-400" size={22} />
+                      Comprovante de Entrega & Termo de Recebimento
+                    </DialogTitle>
+                    <p className="text-xs text-emerald-200 mt-0.5">
+                      Comprovante oficial de entrega e transferência emitido para {branch?.name || 'Sucursal'}.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Button 
+                      onClick={() => generateDistributionReceiptPDF(dist, branches, products, branchId, settings?.companyLogo)} 
+                      variant="outline"
+                      className="border-emerald-700 text-emerald-100 hover:bg-emerald-900 font-bold gap-2"
+                    >
+                      <Download size={16} /> Exportar PDF
+                    </Button>
+                    <Button 
+                      onClick={handlePrintDocument} 
+                      className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold gap-2 shadow-md"
+                    >
+                      <Printer size={16} /> Imprimir Comprovante
+                    </Button>
+                  </div>
+                </div>
+              </DialogHeader>
+
+              <div className="p-6 overflow-y-auto space-y-6 text-slate-800 font-sans">
+                {/* Header Preview */}
+                <div className="flex items-center justify-between border-b pb-4 border-slate-200">
+                  <div className="flex items-center gap-3">
+                    {settings?.companyLogo ? (
+                      <img src={settings.companyLogo} alt="Logo" className="h-12 w-auto object-contain" />
+                    ) : (
+                      <div className="w-12 h-12 bg-emerald-700 text-white font-black text-xl rounded-lg flex items-center justify-center">LR</div>
+                    )}
+                    <div>
+                      <h4 className="font-bold text-lg text-slate-900 uppercase tracking-tight">Lojas Ramos - Comprovante de Entrega</h4>
+                      <p className="text-xs text-slate-500">Termo de Transferência e Recebimento na Filial</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className="font-mono font-bold text-emerald-700 text-lg">#{dist.id.toUpperCase()}</span>
+                    <p className="text-xs text-slate-500">{new Date(dist.createdAt).toLocaleDateString('pt-BR')}</p>
+                  </div>
+                </div>
+
+                {/* Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-1">
+                    <h5 className="text-xs font-bold uppercase tracking-wider text-slate-500">Origem Remetente</h5>
+                    <p className="font-bold text-slate-900">Almoxarifado & CD Central Matriz</p>
+                    <p className="text-xs text-slate-500">Lote ID: #{dist.id.toUpperCase()}</p>
+                  </div>
+
+                  <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-200 space-y-1">
+                    <h5 className="text-xs font-bold uppercase tracking-wider text-emerald-800">Filial Recebedora</h5>
+                    <p className="font-black text-emerald-950 text-base">{branch?.name?.toUpperCase()}</p>
+                    <p className="text-xs text-emerald-900">Gerente Responsável: <strong>{recipientName}</strong></p>
+                  </div>
+                </div>
+
+                {/* Tabela de Produtos */}
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <Table>
+                    <TableHeader className="bg-emerald-900 text-white">
+                      <TableRow className="hover:bg-transparent">
+                        <TableHead className="text-white font-bold text-xs">Seq</TableHead>
+                        <TableHead className="text-white font-bold text-xs">Código</TableHead>
+                        <TableHead className="text-white font-bold text-xs">Descrição do Item</TableHead>
+                        <TableHead className="text-white font-bold text-xs text-center">Unid</TableHead>
+                        <TableHead className="text-white font-bold text-xs text-center">Qtd Entregue</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {branchItems.map((item, idx) => (
+                        <TableRow key={idx} className="border-b border-slate-200">
+                          <TableCell className="font-bold text-xs text-center">{idx + 1}</TableCell>
+                          <TableCell className="font-mono text-xs font-bold">{item.code}</TableCell>
+                          <TableCell className="font-medium text-xs text-slate-900">{item.productName}</TableCell>
+                          <TableCell className="text-xs text-center">{item.unit}</TableCell>
+                          <TableCell className="text-xs font-bold text-center text-emerald-700">{item.quantity}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                {/* Declaração */}
+                <div className="bg-emerald-50/80 p-4 rounded-xl border border-emerald-200 text-xs text-emerald-900 leading-relaxed">
+                  Declaro que recebi da administração central da Lojas Ramos os produtos discriminados acima em perfeita quantidade, qualidade e integridade física para atendimento e uso operacional da sucursal <strong>{branch?.name}</strong>.
+                </div>
+
+                {/* Assinaturas */}
+                <div className="grid grid-cols-2 gap-8 pt-6 border-t border-slate-200">
+                  <div className="text-center space-y-1">
+                    <div className="border-b border-slate-400 w-full mb-2"></div>
+                    <p className="font-bold text-xs text-slate-900">{recipientName}</p>
+                    <p className="text-[10px] text-slate-500">Assinatura do Gerente / Responsável - {branch?.name}</p>
+                  </div>
+                  <div className="text-center space-y-1">
+                    <div className="border-b border-slate-400 w-full mb-2"></div>
+                    <p className="font-bold text-xs text-slate-900">Data: ____ / ____ / _________</p>
+                    <p className="text-[10px] text-slate-500">Data Efetiva de Recebimento e Carimbo da Loja</p>
+                  </div>
+                </div>
+              </div>
             </DialogContent>
           </Dialog>
         );

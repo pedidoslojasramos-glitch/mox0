@@ -71,49 +71,95 @@ const initialState: DbState = {
 
 export const mockDb = {
   get: (): DbState => {
-    const data = localStorage.getItem(STORAGE_KEY);
-    if (!data) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(initialState));
+    try {
+      const data = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null;
+      if (!data) {
+        if (typeof window !== 'undefined') {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(initialState));
+        }
+        return initialState;
+      }
+      const parsed = JSON.parse(data);
+      if (!parsed || typeof parsed !== 'object') {
+        if (typeof window !== 'undefined') {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(initialState));
+        }
+        return initialState;
+      }
+      
+      const loadedUsers = Array.isArray(parsed.users) 
+        ? parsed.users.map((u: any) => ({
+            ...u,
+            password: u?.password || '123'
+          })) 
+        : initialState.users;
+
+      const loadedClassifications = Array.isArray(parsed.productClassifications) 
+        ? parsed.productClassifications 
+        : [...initialState.productClassifications];
+      
+      if (!loadedClassifications.includes('EPIs')) {
+        loadedClassifications.push('EPIs');
+      }
+
+      const loadedProducts = Array.isArray(parsed.products) 
+        ? parsed.products 
+        : [...initialState.products];
+        
+      const hasEpi = loadedProducts.some((p: any) => p && (p.category === 'EPIs' || p.category === 'EPI'));
+      if (!hasEpi) {
+        initialState.products.filter(p => p.category === 'EPIs').forEach(epi => {
+          if (!loadedProducts.some((p: any) => p && p.id === epi.id)) {
+            loadedProducts.push(epi);
+          }
+        });
+      }
+
+      return {
+        ...initialState,
+        ...parsed,
+        users: loadedUsers.length > 0 ? loadedUsers : initialState.users,
+        currentUser: null, // Always start logged out as per user request
+        settings: parsed.settings || initialState.settings,
+        branchLimits: Array.isArray(parsed.branchLimits) ? parsed.branchLimits : [],
+        productClassifications: loadedClassifications,
+        products: loadedProducts.length > 0 ? loadedProducts : initialState.products,
+        branches: Array.isArray(parsed.branches) && parsed.branches.length > 0 ? parsed.branches : initialState.branches,
+        suppliers: Array.isArray(parsed.suppliers) && parsed.suppliers.length > 0 ? parsed.suppliers : initialState.suppliers,
+        purchaseOrders: Array.isArray(parsed.purchaseOrders) ? parsed.purchaseOrders : [],
+        branchOrders: Array.isArray(parsed.branchOrders) ? parsed.branchOrders : [],
+        inventoryCounts: Array.isArray(parsed.inventoryCounts) ? parsed.inventoryCounts : [],
+        distributions: Array.isArray(parsed.distributions) ? parsed.distributions : [],
+      };
+    } catch (e) {
+      console.error('Error loading mockDb, resetting to initialState:', e);
+      try {
+        if (typeof window !== 'undefined') {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(initialState));
+        }
+      } catch (err) {
+        // ignore
+      }
       return initialState;
     }
-    const parsed = JSON.parse(data);
-    // Merge with initialState to ensure new fields like 'settings' exist
-    const loadedUsers = (parsed.users || initialState.users).map((u: any) => ({
-      ...u,
-      password: u.password || '123'
-    }));
-
-    const loadedClassifications = parsed.productClassifications || initialState.productClassifications;
-    if (!loadedClassifications.includes('EPIs')) {
-      loadedClassifications.push('EPIs');
-    }
-
-    const loadedProducts = parsed.products || initialState.products;
-    const hasEpi = loadedProducts.some((p: any) => p.category === 'EPIs' || p.category === 'EPI');
-    if (!hasEpi) {
-      initialState.products.filter(p => p.category === 'EPIs').forEach(epi => {
-        if (!loadedProducts.some((p: any) => p.id === epi.id)) {
-          loadedProducts.push(epi);
-        }
-      });
-    }
-
-    return {
-      ...initialState,
-      ...parsed,
-      users: loadedUsers,
-      currentUser: null, // Always start logged out as per user request
-      settings: parsed.settings || initialState.settings,
-      branchLimits: parsed.branchLimits || [],
-      productClassifications: loadedClassifications,
-      products: loadedProducts
-    };
   },
   save: (state: DbState) => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    try {
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      }
+    } catch (e) {
+      console.error('Error saving to localStorage:', e);
+    }
   },
   reset: () => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(initialState));
-    window.location.reload();
+    try {
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(initialState));
+        window.location.reload();
+      }
+    } catch (e) {
+      console.error('Error resetting localStorage:', e);
+    }
   }
 };

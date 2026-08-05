@@ -761,7 +761,10 @@ function DashboardOverview() {
   const pendingBranchOrders = branchOrders.filter(o => o.status === 'pending');
   const pendingPurchaseOrders = purchaseOrders.filter(o => o.status === 'pending');
   const volumeTotalSaida = distributions.reduce((acc, d) => 
-    acc + d.items.reduce((sum, item) => sum + item.quantity, 0), 0
+    acc + d.items.reduce((sum, item) => {
+      const itemQty = (item as any).quantity ?? item.quantityPerBranch?.reduce((qSum, q) => qSum + (q.quantity || 0), 0) ?? 0;
+      return sum + itemQty;
+    }, 0), 0
   );
 
   const stats = [

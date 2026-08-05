@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useRamoxContext } from '../services/RamoxContextComponent';
 import ExportExcelModal from '../components/ExportExcelModal';
 import ImportExcelModal from '../components/ImportExcelModal';
+import { Pagination } from '../components/Pagination';
 import { 
   Plus, 
   Search, 
@@ -212,6 +213,7 @@ function InventoryTab() {
   const { products, globalSearch, requestInventoryCount, requestGeneralInventoryCount, inventoryCounts, productClassifications } = useRamoxContext();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
+  const [currentPage, setCurrentPage] = useState(1);
   
   const totalItems = products.reduce((acc, p) => acc + p.currentStock, 0);
   const totalValue = products.reduce((acc, p) => acc + (p.currentStock * p.price), 0);
@@ -225,6 +227,12 @@ function InventoryTab() {
     const matchesCategory = selectedCategory === 'all' || p.category === selectedCategory;
     return matchesSearch && matchesCategory;
   });
+
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [effectiveSearch, selectedCategory]);
+
+  const paginatedProducts = filteredProducts.slice((currentPage - 1) * 15, currentPage * 15);
 
   return (
     <div className="space-y-8">
@@ -343,7 +351,7 @@ function InventoryTab() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredProducts.map((p) => {
+              {paginatedProducts.map((p) => {
                 const stockPercentage = Math.min(100, (p.currentStock / (p.minStock * 2)) * 100);
                 const isCritical = p.currentStock <= p.minStock;
                 
@@ -433,6 +441,13 @@ function InventoryTab() {
             </TableBody>
           </Table>
          </div>
+         <Pagination
+           currentPage={currentPage}
+           totalPages={Math.ceil(filteredProducts.length / 15)}
+           onPageChange={setCurrentPage}
+           totalItems={filteredProducts.length}
+           itemsPerPage={15}
+         />
         </CardContent>
       </Card>
     </div>
@@ -440,9 +455,10 @@ function InventoryTab() {
 }
 
 function ProductsTab() {
-  const { products, addProduct, globalSearch, productClassifications } = useRamoxContext();
+  const { products, addProduct, deleteProduct, globalSearch, productClassifications } = useRamoxContext();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
+  const [currentPage, setCurrentPage] = useState(1);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [newProduct, setNewProduct] = useState({
     name: '',
@@ -486,6 +502,12 @@ function ProductsTab() {
     const matchesCategory = selectedCategory === 'all' || p.category === selectedCategory;
     return matchesSearch && matchesCategory;
   });
+
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [effectiveSearch, selectedCategory]);
+
+  const paginatedProducts = filteredProducts.slice((currentPage - 1) * 15, currentPage * 15);
 
   return (
     <Card className="border-slate-800 bg-slate-900/50 shadow-2xl backdrop-blur-xl">
@@ -638,45 +660,56 @@ function ProductsTab() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredProducts.map((p) => (
+            {paginatedProducts.map((p) => (
               <TableRow key={p.id} className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors">
-                <TableCell>
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-md bg-slate-800 overflow-hidden border border-slate-700 flex-shrink-0 shadow-inner">
+                <TableCell className="max-w-[200px] md:max-w-[260px]">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-md bg-slate-800 overflow-hidden border border-slate-700 flex-shrink-0 shadow-inner">
                       {p.image ? (
                         <img src={p.image} alt={p.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-slate-600">
-                          <Package size={20} />
+                          <Package size={18} />
                         </div>
                       )}
                     </div>
-                    <div>
-                      <div className="font-bold text-slate-200">{p.name}</div>
-                      <div className="text-xs font-mono text-cyan-500/70">{p.code}</div>
+                    <div className="min-w-0">
+                      <div className="font-bold text-slate-200 text-xs md:text-sm truncate" title={p.name}>{p.name}</div>
+                      <div className="text-[11px] font-mono text-cyan-500/70 truncate">{p.code}</div>
                     </div>
                   </div>
                 </TableCell>
-                <TableCell>
-                  <Badge variant="outline" className="text-[10px] font-bold uppercase tracking-widest bg-slate-800/50 border-slate-700 text-slate-400">
+                <TableCell className="max-w-[130px]">
+                  <Badge variant="outline" className="text-[10px] font-bold uppercase tracking-wider bg-slate-800/50 border-slate-700 text-slate-400 truncate max-w-full block text-center" title={p.category}>
                     {p.category}
                   </Badge>
                 </TableCell>
-                <TableCell>
-                  <span className="font-bold text-white">{p.currentStock}</span> <span className="text-slate-500 text-xs">{p.unit}</span>
+                <TableCell className="whitespace-nowrap">
+                  <span className="font-bold text-white text-xs md:text-sm">{p.currentStock}</span> <span className="text-slate-500 text-xs">{p.unit}</span>
                 </TableCell>
-                <TableCell className="font-bold text-white">R$ {p.price?.toFixed(2) || '0.00'}</TableCell>
-                <TableCell>
+                <TableCell className="font-bold text-white text-xs md:text-sm whitespace-nowrap">R$ {p.price?.toFixed(2) || '0.00'}</TableCell>
+                <TableCell className="whitespace-nowrap">
                   {p.currentStock <= p.minStock ? (
-                    <Badge className="bg-rose-500/10 text-rose-400 border-rose-500/20">Estoque Baixo</Badge>
+                    <Badge className="bg-rose-500/10 text-rose-400 border-rose-500/20 text-[10px]">Estoque Baixo</Badge>
                   ) : (
-                    <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20">Normal</Badge>
+                    <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20 text-[10px]">Normal</Badge>
                   )}
                 </TableCell>
-                <TableCell className="text-right">
-                  <div className="flex justify-end gap-2">
-                    <Button variant="ghost" size="icon" className="h-9 w-9 rounded-lg text-slate-500 hover:text-cyan-400 hover:bg-cyan-500/10"><Edit size={16} /></Button>
-                    <Button variant="ghost" size="icon" className="h-9 w-9 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10"><Trash2 size={16} /></Button>
+                <TableCell className="text-right whitespace-nowrap">
+                  <div className="flex justify-end gap-1">
+                    <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-slate-500 hover:text-cyan-400 hover:bg-cyan-500/10" title="Editar"><Edit size={15} /></Button>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-8 w-8 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10" 
+                      title="Excluir Produto"
+                      onClick={() => {
+                        deleteProduct(p.id);
+                        toast.success(`Produto "${p.name}" excluído com sucesso!`);
+                      }}
+                    >
+                      <Trash2 size={15} />
+                    </Button>
                   </div>
                 </TableCell>
               </TableRow>
@@ -684,14 +717,22 @@ function ProductsTab() {
           </TableBody>
         </Table>
        </div>
+       <Pagination
+         currentPage={currentPage}
+         totalPages={Math.ceil(filteredProducts.length / 15)}
+         onPageChange={setCurrentPage}
+         totalItems={filteredProducts.length}
+         itemsPerPage={15}
+       />
       </CardContent>
     </Card>
   );
 }
 
 function SuppliersTab() {
-  const { suppliers, addSupplier, globalSearch } = useRamoxContext();
+  const { suppliers, addSupplier, deleteSupplier, globalSearch } = useRamoxContext();
   const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [newSupplier, setNewSupplier] = useState({ name: '', code: '', cnpj: '', contact: '' });
 
@@ -709,6 +750,12 @@ function SuppliersTab() {
     s.code.toLowerCase().includes(effectiveSearch.toLowerCase()) ||
     s.cnpj.includes(effectiveSearch)
   );
+
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [effectiveSearch]);
+
+  const paginatedSuppliers = filteredSuppliers.slice((currentPage - 1) * 15, currentPage * 15);
 
   return (
     <Card className="border-slate-800 bg-slate-900/50 shadow-2xl backdrop-blur-xl">
@@ -813,15 +860,31 @@ function SuppliersTab() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredSuppliers.map((s) => (
+            {paginatedSuppliers.map((s) => (
               <TableRow key={s.id} className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors">
-                <TableCell className="font-mono text-xs font-bold text-cyan-500/70">{s.code}</TableCell>
-                <TableCell className="font-bold text-slate-200">{s.name}</TableCell>
-                <TableCell className="text-slate-400 font-mono">{s.cnpj}</TableCell>
-                <TableCell className="text-slate-400 font-medium">{s.contact}</TableCell>
-                <TableCell className="text-right">
-                  <div className="flex justify-end gap-2">
-                    <Button variant="ghost" size="icon" className="h-9 w-9 rounded-lg text-slate-500 hover:text-cyan-400 hover:bg-cyan-500/10"><Edit size={16} /></Button>
+                <TableCell className="font-mono text-xs font-bold text-cyan-500/70 whitespace-nowrap">{s.code}</TableCell>
+                <TableCell className="max-w-[200px] md:max-w-[260px]">
+                  <div className="font-bold text-slate-200 text-xs md:text-sm truncate" title={s.name}>{s.name}</div>
+                </TableCell>
+                <TableCell className="text-slate-400 font-mono text-xs whitespace-nowrap">{s.cnpj}</TableCell>
+                <TableCell className="text-slate-400 font-medium text-xs max-w-[160px]">
+                  <div className="truncate" title={s.contact}>{s.contact}</div>
+                </TableCell>
+                <TableCell className="text-right whitespace-nowrap">
+                  <div className="flex justify-end gap-1">
+                    <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-slate-500 hover:text-cyan-400 hover:bg-cyan-500/10" title="Editar"><Edit size={15} /></Button>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-8 w-8 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10" 
+                      title="Excluir Fornecedor"
+                      onClick={() => {
+                        deleteSupplier(s.id);
+                        toast.success(`Fornecedor "${s.name}" excluído com sucesso!`);
+                      }}
+                    >
+                      <Trash2 size={15} />
+                    </Button>
                   </div>
                 </TableCell>
               </TableRow>
@@ -829,6 +892,13 @@ function SuppliersTab() {
           </TableBody>
         </Table>
        </div>
+       <Pagination
+         currentPage={currentPage}
+         totalPages={Math.ceil(filteredSuppliers.length / 15)}
+         onPageChange={setCurrentPage}
+         totalItems={filteredSuppliers.length}
+         itemsPerPage={15}
+       />
       </CardContent>
     </Card>
   );
@@ -846,6 +916,8 @@ function DistributionTab() {
 
   // Submenu Tab: 'overview' (Painel Geral) vs 'tracking' (Acompanhamento por Filial)
   const [subTab, setSubTab] = useState<'overview' | 'tracking'>('overview');
+  const [overviewPage, setOverviewPage] = useState(1);
+  const [trackingPage, setTrackingPage] = useState(1);
 
   // Tracking Submenu Filters
   const [trackingBranchFilter, setTrackingBranchFilter] = useState<string>('all');
@@ -1145,6 +1217,14 @@ function DistributionTab() {
     return matchesBranch && matchesType && matchesSearch;
   });
 
+  React.useEffect(() => {
+    setTrackingPage(1);
+  }, [trackingBranchFilter, trackingTypeFilter, trackingSearch]);
+
+  const reversedDistributions = distributions.slice().reverse();
+  const paginatedDistributions = reversedDistributions.slice((overviewPage - 1) * 15, overviewPage * 15);
+  const paginatedBranchHistory = filteredBranchHistory.slice((trackingPage - 1) * 15, trackingPage * 15);
+
   const handlePrintDocument = () => {
     try {
       window.focus();
@@ -1289,7 +1369,7 @@ function DistributionTab() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {distributions.slice().reverse().map((d) => {
+                  {paginatedDistributions.map((d) => {
                     const totalBranches = new Set();
                     d.items.forEach(item => item.quantityPerBranch.forEach(q => totalBranches.add(q.branchId)));
                     const isEpi = d.type === 'epi';
@@ -1365,6 +1445,13 @@ function DistributionTab() {
                 </TableBody>
               </Table>
             </div>
+            <Pagination
+              currentPage={overviewPage}
+              totalPages={Math.ceil(distributions.length / 15)}
+              onPageChange={setOverviewPage}
+              totalItems={distributions.length}
+              itemsPerPage={15}
+            />
           </CardContent>
         </Card>
       )}
@@ -1495,7 +1582,7 @@ function DistributionTab() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredBranchHistory.map((item, index) => {
+                  {paginatedBranchHistory.map((item, index) => {
                     const isEpi = item.dist.type === 'epi';
 
                     return (
@@ -1588,6 +1675,13 @@ function DistributionTab() {
                 </TableBody>
               </Table>
             </div>
+            <Pagination
+              currentPage={trackingPage}
+              totalPages={Math.ceil(filteredBranchHistory.length / 15)}
+              onPageChange={setTrackingPage}
+              totalItems={filteredBranchHistory.length}
+              itemsPerPage={15}
+            />
           </CardContent>
         </Card>
       )}
@@ -3030,6 +3124,7 @@ function PurchasesTab() {
   const [listStatusFilter, setListStatusFilter] = useState<string>('all');
   const [listSupplierFilter, setListSupplierFilter] = useState<string>('all');
   const [listDateFilter, setListDateFilter] = useState<string>('');
+  const [currentPage, setCurrentPage] = useState(1);
 
   const filteredOrders = purchaseOrders.filter(o => {
     if (listStatusFilter !== 'all' && o.status !== listStatusFilter) return false;
@@ -3040,6 +3135,13 @@ function PurchasesTab() {
     }
     return true;
   });
+
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [listStatusFilter, listSupplierFilter, listDateFilter]);
+
+  const reversedOrders = filteredOrders.slice().reverse();
+  const paginatedOrders = reversedOrders.slice((currentPage - 1) * 15, currentPage * 15);
 
   const currentOrderTotal = orderItems.reduce((acc, item) => {
     const product = products.find(p => p.id === item.productId);
@@ -3546,7 +3648,7 @@ function PurchasesTab() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredOrders.slice().reverse().map((o) => {
+              {paginatedOrders.map((o) => {
                 const supplier = suppliers.find(s => s.id === o.supplierId);
                 return (
                   <TableRow key={o.id} className="group border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors">
@@ -3562,12 +3664,12 @@ function PurchasesTab() {
                       </Button>
                     </TableCell>
                     <TableCell className="font-mono font-bold text-cyan-500 uppercase tracking-tighter">#{o.id.toUpperCase()}</TableCell>
-                    <TableCell>
-                      <div className="font-bold text-slate-200">{supplier?.name}</div>
-                      <div className="text-[10px] text-slate-500 font-mono tracking-wider">{supplier?.cnpj}</div>
+                    <TableCell className="max-w-[180px] md:max-w-[240px]">
+                      <div className="font-bold text-slate-200 text-xs md:text-sm truncate" title={supplier?.name}>{supplier?.name}</div>
+                      <div className="text-[10px] text-slate-500 font-mono tracking-wider truncate">{supplier?.cnpj}</div>
                     </TableCell>
-                    <TableCell className="text-slate-400 font-medium">{new Date(o.createdAt).toLocaleDateString('pt-BR')}</TableCell>
-                    <TableCell className="font-bold text-white">R$ {o.totalValue?.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) || '0,00'}</TableCell>
+                    <TableCell className="text-slate-400 font-medium text-xs whitespace-nowrap">{new Date(o.createdAt).toLocaleDateString('pt-BR')}</TableCell>
+                    <TableCell className="font-bold text-white text-xs md:text-sm whitespace-nowrap">R$ {o.totalValue?.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) || '0,00'}</TableCell>
                     <TableCell className="text-center">
                       <Badge className={
                         o.status === 'received' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 
@@ -3629,6 +3731,13 @@ function PurchasesTab() {
             </TableBody>
           </Table>
          </div>
+         <Pagination
+           currentPage={currentPage}
+           totalPages={Math.ceil(filteredOrders.length / 15)}
+           onPageChange={setCurrentPage}
+           totalItems={filteredOrders.length}
+           itemsPerPage={15}
+         />
         </CardContent>
       </Card>
     </div>
@@ -3642,6 +3751,7 @@ function ApprovalTab() {
   const [statusFilter, setStatusFilter] = useState<string>('active');
   const [branchFilter, setBranchFilter] = useState<string>('all');
   const [dateFilter, setDateFilter] = useState<string>('');
+  const [currentPage, setCurrentPage] = useState(1);
 
   const filteredOrders = branchOrders.filter(o => {
     // Status Filter
@@ -3664,6 +3774,13 @@ function ApprovalTab() {
 
     return true;
   });
+
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter, branchFilter, dateFilter]);
+
+  const reversedOrders = filteredOrders.slice().reverse();
+  const paginatedOrders = reversedOrders.slice((currentPage - 1) * 15, currentPage * 15);
 
   const startEdit = (order: any) => {
     setEditingOrder(order.id);
@@ -3807,7 +3924,7 @@ function ApprovalTab() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredOrders.slice().reverse().map(order => {
+              {paginatedOrders.map(order => {
                 const branch = branches.find(b => b.id === order.branchId);
                 const isEditing = editingOrder === order.id;
                 const isDiscrepancy = order.status === 'discrepancy';
@@ -3834,14 +3951,16 @@ function ApprovalTab() {
                     <TableCell className={`font-mono font-bold ${isDiscrepancy ? 'text-red-500' : 'text-cyan-500'}`}>
                       #{order.id.toUpperCase()}
                     </TableCell>
-                    <TableCell className="font-bold text-slate-200">{branch?.name}</TableCell>
-                    <TableCell className="text-slate-400 font-medium">{new Date(order.createdAt).toLocaleDateString('pt-BR')}</TableCell>
-                    <TableCell className="text-center">
+                    <TableCell className="max-w-[160px] md:max-w-[220px]">
+                      <div className="font-bold text-slate-200 text-xs md:text-sm truncate" title={branch?.name}>{branch?.name}</div>
+                    </TableCell>
+                    <TableCell className="text-slate-400 font-medium text-xs whitespace-nowrap">{new Date(order.createdAt).toLocaleDateString('pt-BR')}</TableCell>
+                    <TableCell className="text-center whitespace-nowrap">
                       <div className="flex items-center justify-center gap-2">
                         {getStatusBadge(order.status)}
                       </div>
                     </TableCell>
-                    <TableCell className="font-bold text-white">R$ {order.totalValue.toFixed(2)}</TableCell>
+                    <TableCell className="font-bold text-white text-xs md:text-sm whitespace-nowrap">R$ {order.totalValue.toFixed(2)}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
                         {isPending ? (
@@ -3923,6 +4042,13 @@ function ApprovalTab() {
             </TableBody>
           </Table>
          </div>
+         <Pagination
+           currentPage={currentPage}
+           totalPages={Math.ceil(filteredOrders.length / 15)}
+           onPageChange={setCurrentPage}
+           totalItems={filteredOrders.length}
+           itemsPerPage={15}
+         />
         </CardContent>
       </Card>
     </div>
@@ -3935,6 +4061,7 @@ function InvoicingTab() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [dateFilter, setDateFilter] = useState<string>('all');
+  const [currentPage, setCurrentPage] = useState(1);
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
   const [labelOrderPrompt, setLabelOrderPrompt] = useState<any>(null);
@@ -3996,6 +4123,12 @@ function InvoicingTab() {
     // Filter by date
     return filterByDate(order);
   });
+
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, statusFilter, dateFilter]);
+
+  const paginatedOrders = filteredOrders.slice((currentPage - 1) * 15, currentPage * 15);
 
   return (
     <div className="space-y-6">
@@ -4103,21 +4236,21 @@ function InvoicingTab() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredOrders.map(order => {
+              {paginatedOrders.map(order => {
                 const branch = branches.find(b => b.id === order.branchId);
                 const orderDate = order.createdAt ? new Date(order.createdAt).toLocaleDateString('pt-BR') : 'N/A';
                 return (
                   <TableRow key={order.id} className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors">
                     <TableCell className="font-mono font-bold text-cyan-450 text-cyan-400">#{order.id.toUpperCase()}</TableCell>
-                    <TableCell>
-                      <div className="font-bold text-slate-200">{branch?.name}</div>
-                      <div className="text-[10px] text-slate-500 uppercase tracking-widest">{branch?.location}</div>
+                    <TableCell className="max-w-[160px] md:max-w-[220px]">
+                      <div className="font-bold text-slate-200 text-xs md:text-sm truncate" title={branch?.name}>{branch?.name}</div>
+                      <div className="text-[10px] text-slate-500 uppercase tracking-widest truncate">{branch?.location}</div>
                     </TableCell>
-                    <TableCell className="text-slate-400 text-xs font-medium">{orderDate}</TableCell>
-                    <TableCell>
+                    <TableCell className="text-slate-400 text-xs font-medium whitespace-nowrap">{orderDate}</TableCell>
+                    <TableCell className="whitespace-nowrap">
                       {getStatusLabelAndBadge(order.status)}
                     </TableCell>
-                    <TableCell className="font-bold text-white text-xs">R$ {order.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</TableCell>
+                    <TableCell className="font-bold text-white text-xs whitespace-nowrap">R$ {order.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</TableCell>
                     <TableCell className="text-right py-4">
                       <div className="flex items-center justify-end gap-2.5">
                         <Button
@@ -4180,6 +4313,13 @@ function InvoicingTab() {
             </TableBody>
           </Table>
          </div>
+         <Pagination
+           currentPage={currentPage}
+           totalPages={Math.ceil(filteredOrders.length / 15)}
+           onPageChange={setCurrentPage}
+           totalItems={filteredOrders.length}
+           itemsPerPage={15}
+         />
         </CardContent>
       </Card>
 

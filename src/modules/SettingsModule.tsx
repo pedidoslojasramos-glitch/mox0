@@ -27,6 +27,7 @@ import {
   isSupabaseConfigured 
 } from '../lib/supabase';
 import { toValidUUID } from '../services/ramoxContext';
+import Pagination from '../components/Pagination';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -66,6 +67,13 @@ export default function SettingsModule() {
   } = useRamoxContext();
   
   const [newClassification, setNewClassification] = useState('');
+  const [currentUsersPage, setCurrentUsersPage] = useState(1);
+  const [currentBranchesPage, setCurrentBranchesPage] = useState(1);
+  const [currentClassificationsPage, setCurrentClassificationsPage] = useState(1);
+
+  const paginatedUsers = users.slice((currentUsersPage - 1) * 15, currentUsersPage * 15);
+  const paginatedBranches = branches.slice((currentBranchesPage - 1) * 15, currentBranchesPage * 15);
+  const paginatedClassifications = (productClassifications || []).slice((currentClassificationsPage - 1) * 15, currentClassificationsPage * 15);
   const initialSupabaseConfig = getSupabaseConfig();
   const [supabaseUrlInput, setSupabaseUrlInput] = useState(initialSupabaseConfig.url);
   const [supabaseKeyInput, setSupabaseKeyInput] = useState(initialSupabaseConfig.key);
@@ -640,42 +648,40 @@ DO $$ BEGIN CREATE POLICY "Allow public read-write for branch_orders" ON public.
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {users.map((u) => (
+                      {paginatedUsers.map((u) => (
                         <TableRow key={u.id}>
-                          <TableCell>
-                            <div className="font-medium">{u.name}</div>
-                            <div className="text-xs text-slate-500">{u.email}</div>
+                          <TableCell className="max-w-[180px] md:max-w-[240px]">
+                            <div className="font-medium text-slate-800 truncate text-xs md:text-sm" title={u.name}>{u.name}</div>
+                            <div className="text-xs text-slate-500 truncate" title={u.email}>{u.email}</div>
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="whitespace-nowrap">
                             <span className="font-mono text-xs bg-slate-100 text-slate-700 px-2 py-1 rounded border border-slate-200">
                               {u.password || '123'}
                             </span>
                           </TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className="capitalize flex w-fit gap-1 items-center">
+                          <TableCell className="whitespace-nowrap">
+                            <Badge variant="outline" className="capitalize flex w-fit gap-1 items-center text-xs">
                               <Shield size={12} className="text-slate-400" />
                               {u.role}
                             </Badge>
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="max-w-[160px]">
                             {u.branchId ? (
-                              <span className="text-sm text-slate-600">
+                              <span className="text-xs md:text-sm text-slate-600 truncate block" title={branches.find(b => b.id === u.branchId)?.name}>
                                 {branches.find(b => b.id === u.branchId)?.name}
                               </span>
                             ) : (
                               <span className="text-xs text-slate-400 italic">Global</span>
                             )}
                           </TableCell>
-                          <TableCell className="text-right">
+                          <TableCell className="text-right whitespace-nowrap">
                             <Button
                               variant="ghost"
                               size="icon"
                               className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 h-8 w-8"
                               onClick={() => {
-                                if (confirm(`Deseja excluir o usuário "${u.name}"?`)) {
-                                  deleteUser(u.id);
-                                  toast.success(`Usuário ${u.name} excluído.`);
-                                }
+                                deleteUser(u.id);
+                                toast.success(`Usuário "${u.name}" excluído com sucesso.`);
                               }}
                             >
                               <Trash2 size={15} />
@@ -686,6 +692,13 @@ DO $$ BEGIN CREATE POLICY "Allow public read-write for branch_orders" ON public.
                     </TableBody>
                   </Table>
                 </div>
+                <Pagination
+                  currentPage={currentUsersPage}
+                  totalPages={Math.ceil(users.length / 15)}
+                  onPageChange={setCurrentUsersPage}
+                  totalItems={users.length}
+                  itemsPerPage={15}
+                />
               </CardContent>
             </Card>
           </div>
@@ -778,28 +791,26 @@ DO $$ BEGIN CREATE POLICY "Allow public read-write for branch_orders" ON public.
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {branches.map((b) => (
+                      {paginatedBranches.map((b) => (
                         <TableRow key={b.id}>
-                          <TableCell>
-                            <div className="font-semibold text-slate-800">{b.name}</div>
-                            <div className="text-[10px] text-slate-400 font-mono">ID: {b.id}</div>
+                          <TableCell className="max-w-[160px] md:max-w-[220px]">
+                            <div className="font-semibold text-slate-800 text-xs md:text-sm truncate" title={b.name}>{b.name}</div>
+                            <div className="text-[10px] text-slate-400 font-mono truncate">ID: {b.id}</div>
                           </TableCell>
-                          <TableCell>
-                            <span className="text-sm text-slate-600 font-medium">{b.location}</span>
+                          <TableCell className="max-w-[200px] md:max-w-[280px]">
+                            <span className="text-xs md:text-sm text-slate-600 font-medium truncate block" title={b.location}>{b.location}</span>
                           </TableCell>
-                          <TableCell>
-                            <span className="text-sm text-slate-700 font-medium">{b.manager}</span>
+                          <TableCell className="max-w-[140px] md:max-w-[200px]">
+                            <span className="text-xs md:text-sm text-slate-700 font-medium truncate block" title={b.manager}>{b.manager}</span>
                           </TableCell>
-                          <TableCell className="text-right">
+                          <TableCell className="text-right whitespace-nowrap">
                             <Button
                               variant="ghost"
                               size="icon"
                               className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 h-8 w-8"
                               onClick={() => {
-                                if (confirm(`Deseja excluir a filial "${b.name}"?`)) {
-                                  deleteBranch(b.id);
-                                  toast.success(`Filial ${b.name} excluída.`);
-                                }
+                                deleteBranch(b.id);
+                                toast.success(`Filial "${b.name}" excluída com sucesso.`);
                               }}
                             >
                               <Trash2 size={15} />
@@ -810,6 +821,13 @@ DO $$ BEGIN CREATE POLICY "Allow public read-write for branch_orders" ON public.
                     </TableBody>
                   </Table>
                 </div>
+                <Pagination
+                  currentPage={currentBranchesPage}
+                  totalPages={Math.ceil(branches.length / 15)}
+                  onPageChange={setCurrentBranchesPage}
+                  totalItems={branches.length}
+                  itemsPerPage={15}
+                />
               </CardContent>
             </Card>
           </div>
@@ -871,7 +889,7 @@ DO $$ BEGIN CREATE POLICY "Allow public read-write for branch_orders" ON public.
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {productClassifications && productClassifications.map((c) => (
+                      {productClassifications && paginatedClassifications.map((c) => (
                         <TableRow key={c}>
                           <TableCell>
                             <div className="font-semibold text-slate-800">{c}</div>
@@ -883,10 +901,8 @@ DO $$ BEGIN CREATE POLICY "Allow public read-write for branch_orders" ON public.
                               type="button"
                               className="text-slate-400 hover:text-red-650 hover:bg-red-50 rounded-lg p-0 h-8 w-8 inline-flex items-center justify-center"
                               onClick={() => {
-                                if (confirm(`Tem certeza que deseja excluir a classificação "${c}"?`)) {
-                                  deleteProductClassification(c);
-                                  toast.success(`Classificação "${c}" excluída!`);
-                                }
+                                deleteProductClassification(c);
+                                toast.success(`Classificação "${c}" excluída!`);
                               }}
                             >
                               <Trash2 size={15} />
@@ -904,6 +920,13 @@ DO $$ BEGIN CREATE POLICY "Allow public read-write for branch_orders" ON public.
                     </TableBody>
                   </Table>
                 </div>
+                <Pagination
+                  currentPage={currentClassificationsPage}
+                  totalPages={Math.ceil((productClassifications || []).length / 15)}
+                  onPageChange={setCurrentClassificationsPage}
+                  totalItems={(productClassifications || []).length}
+                  itemsPerPage={15}
+                />
               </CardContent>
             </Card>
           </div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRamoxContext } from '../services/RamoxContextComponent';
 import ExportExcelModal from '../components/ExportExcelModal';
+import Pagination from '../components/Pagination';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -95,12 +96,20 @@ export default function LimitsModule({ hideHeader = false }: LimitsModuleProps) 
 
   const categories = ['all', ...(productClassifications || [])];
 
+  const [currentPage, setCurrentPage] = useState(1);
+
   const filteredProducts = products.filter(p => {
     const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
                           p.code.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesCategory = selectedCategory === 'all' || p.category === selectedCategory;
     return matchesSearch && matchesCategory;
   });
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedCategory]);
+
+  const paginatedProducts = filteredProducts.slice((currentPage - 1) * 15, currentPage * 15);
 
   return (
     <div className="space-y-6 md:space-y-8 text-slate-100 font-sans">
@@ -345,7 +354,7 @@ export default function LimitsModule({ hideHeader = false }: LimitsModuleProps) 
                         </TableHeader>
                         <TableBody>
                           {filteredProducts.length > 0 ? (
-                            filteredProducts.map((p) => {
+                            paginatedProducts.map((p) => {
                               const value = productLimits[p.id] !== undefined ? productLimits[p.id] : 0;
                               return (
                                 <TableRow key={p.id} className="border-slate-800/60 hover:bg-slate-900/30">
@@ -407,6 +416,14 @@ export default function LimitsModule({ hideHeader = false }: LimitsModuleProps) 
                       </Table>
                     </div>
                   </div>
+
+                  <Pagination
+                    currentPage={currentPage}
+                    totalPages={Math.ceil(filteredProducts.length / 15)}
+                    onPageChange={setCurrentPage}
+                    totalItems={filteredProducts.length}
+                    itemsPerPage={15}
+                  />
 
                   <div className="flex flex-col sm:flex-row justify-end pt-4 gap-4">
                     <Button

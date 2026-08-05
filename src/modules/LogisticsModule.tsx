@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRamoxContext } from '../services/RamoxContextComponent';
 import ExportExcelModal from '../components/ExportExcelModal';
+import Pagination from '../components/Pagination';
 import { generateRomaneioPDF, generateBoxLabelPDF } from '../utils/pdfGenerator';
 import { 
   Dialog, 
@@ -197,6 +198,23 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
   const pendingCounts = inventoryCounts.filter(c => c.status === 'pending');
   const incomingPurchases = purchaseOrders.filter(o => o.status === 'approved');
 
+  const [currentPickingPage, setCurrentPickingPage] = useState(1);
+  const [currentReadyPage, setCurrentReadyPage] = useState(1);
+  const [currentIncomingPage, setCurrentIncomingPage] = useState(1);
+  const [currentCountsPage, setCurrentCountsPage] = useState(1);
+
+  useEffect(() => {
+    setCurrentPickingPage(1);
+    setCurrentReadyPage(1);
+    setCurrentIncomingPage(1);
+    setCurrentCountsPage(1);
+  }, [searchTerm, globalSearch, activeTab]);
+
+  const paginatedPickingOrders = pickingCitiesOrders.slice((currentPickingPage - 1) * 15, currentPickingPage * 15);
+  const paginatedFinishedOrders = finishedOrders.slice((currentReadyPage - 1) * 15, currentReadyPage * 15);
+  const paginatedIncomingPurchases = incomingPurchases.slice((currentIncomingPage - 1) * 15, currentIncomingPage * 15);
+  const paginatedPendingCounts = pendingCounts.slice((currentCountsPage - 1) * 15, currentCountsPage * 15);
+
   // Group approved orders by city
   const ordersByCity = pickingCitiesOrders.reduce((acc, order) => {
     const branch = branches.find(b => b.id === order.branchId);
@@ -316,14 +334,18 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {pickingCitiesOrders.map(order => {
+                    {paginatedPickingOrders.map(order => {
                       const branch = branches.find(b => b.id === order.branchId);
                       const totalQty = order.items.reduce((sum, item) => sum + item.quantity, 0);
                       return (
                         <TableRow key={order.id} className="group border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors">
                           <TableCell className="font-mono font-bold text-cyan-400 pl-6">#{order.id.toUpperCase()}</TableCell>
-                          <TableCell className="font-bold text-slate-200">{branch?.name}</TableCell>
-                          <TableCell className="text-slate-400 text-xs font-semibold">{branch?.location}</TableCell>
+                          <TableCell className="max-w-[160px] md:max-w-[220px]">
+                            <div className="font-bold text-slate-200 text-xs md:text-sm truncate" title={branch?.name}>{branch?.name}</div>
+                          </TableCell>
+                          <TableCell className="text-slate-400 text-xs font-semibold max-w-[140px]">
+                            <div className="truncate" title={branch?.location}>{branch?.location}</div>
+                          </TableCell>
                           <TableCell className="text-center">
                             {order.status === 'picking' ? (
                               <Badge className="bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-bold">Em Separação</Badge>
@@ -393,6 +415,13 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                   </TableBody>
                 </Table>
               </div>
+              <Pagination
+                currentPage={currentPickingPage}
+                totalPages={Math.ceil(pickingCitiesOrders.length / 15)}
+                onPageChange={setCurrentPickingPage}
+                totalItems={pickingCitiesOrders.length}
+                itemsPerPage={15}
+              />
             </CardContent>
           </Card>
         </TabsContent>
@@ -609,7 +638,7 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {finishedOrders.map((order) => {
+                      {paginatedFinishedOrders.map((order) => {
                         const branch = branches.find(b => b.id === order.branchId);
                         const totalPecas = order.items.reduce((sum: number, i: any) => sum + i.quantity, 0);
                         return (
@@ -617,9 +646,9 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                             <TableCell className="font-black text-cyan-400">
                               #{order.id.toUpperCase()}
                             </TableCell>
-                            <TableCell>
-                              <div className="font-bold text-white">{branch?.name || order.branchId}</div>
-                              <div className="text-xs text-slate-400">{branch?.location || 'Filial Lojas Ramos'}</div>
+                            <TableCell className="max-w-[160px] md:max-w-[220px]">
+                              <div className="font-bold text-white text-xs md:text-sm truncate" title={branch?.name || order.branchId}>{branch?.name || order.branchId}</div>
+                              <div className="text-xs text-slate-400 truncate" title={branch?.location || 'Filial Lojas Ramos'}>{branch?.location || 'Filial Lojas Ramos'}</div>
                             </TableCell>
                             <TableCell className="text-xs text-slate-300 font-medium whitespace-nowrap">
                               {new Date(order.createdAt).toLocaleDateString('pt-BR')}
@@ -676,7 +705,7 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-6">
-                  {finishedOrders.map(order => (
+                  {paginatedFinishedOrders.map(order => (
                     <OrderCard 
                       key={order.id} 
                       order={order} 
@@ -690,6 +719,13 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                   ))}
                 </div>
               )}
+              <Pagination
+                currentPage={currentReadyPage}
+                totalPages={Math.ceil(finishedOrders.length / 15)}
+                onPageChange={setCurrentReadyPage}
+                totalItems={finishedOrders.length}
+                itemsPerPage={15}
+              />
             </CardContent>
           </Card>
         </TabsContent>
@@ -713,7 +749,7 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {pendingCounts.map(count => {
+                    {paginatedPendingCounts.map(count => {
                       const product = products.find(p => p.id === count.productId);
                       return (
                         <TableRow key={count.id}>
@@ -766,6 +802,13 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                   </TableBody>
                 </Table>
               </div>
+              <Pagination
+                currentPage={currentCountsPage}
+                totalPages={Math.ceil(pendingCounts.length / 15)}
+                onPageChange={setCurrentCountsPage}
+                totalItems={pendingCounts.length}
+                itemsPerPage={15}
+              />
             </CardContent>
           </Card>
         </TabsContent>
@@ -788,7 +831,7 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {incomingPurchases.map(order => {
+                    {paginatedIncomingPurchases.map(order => {
                       const supplier = suppliers.find(s => s.id === order.supplierId);
                       return (
                         <TableRow key={order.id} className="group border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors">
@@ -840,6 +883,13 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                   </TableBody>
                 </Table>
               </div>
+              <Pagination
+                currentPage={currentIncomingPage}
+                totalPages={Math.ceil(incomingPurchases.length / 15)}
+                onPageChange={setCurrentIncomingPage}
+                totalItems={incomingPurchases.length}
+                itemsPerPage={15}
+              />
             </CardContent>
           </Card>
         </TabsContent>

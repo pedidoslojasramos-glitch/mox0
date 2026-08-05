@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRamoxContext } from '../services/RamoxContextComponent';
 import ExportExcelModal from '../components/ExportExcelModal';
+import Pagination from '../components/Pagination';
 import { 
   Store, 
   Plus, 
@@ -310,6 +311,9 @@ export default function BranchModule({ initialTab }: { initialTab?: string }) {
 
   const categories = ['all', ...(productClassifications || [])];
 
+  const [currentProductsPage, setCurrentProductsPage] = useState(1);
+  const [currentOrdersPage, setCurrentOrdersPage] = useState(1);
+
   const filteredProducts = products.filter(p => {
     const matchesSearch = p.name.toLowerCase().includes(effectiveSearch.toLowerCase()) ||
                          p.code.toLowerCase().includes(effectiveSearch.toLowerCase());
@@ -317,10 +321,23 @@ export default function BranchModule({ initialTab }: { initialTab?: string }) {
     return matchesSearch && matchesCategory;
   });
 
+  useEffect(() => {
+    setCurrentProductsPage(1);
+  }, [searchTerm, selectedCategory, globalSearch]);
+
+  const paginatedProducts = filteredProducts.slice((currentProductsPage - 1) * 15, currentProductsPage * 15);
+
   const filteredOrders = myOrders.filter(o => 
     o.id.toLowerCase().includes(effectiveSearch.toLowerCase()) ||
     o.status.toLowerCase().includes(effectiveSearch.toLowerCase())
   );
+
+  useEffect(() => {
+    setCurrentOrdersPage(1);
+  }, [searchTerm, globalSearch]);
+
+  const reversedOrders = filteredOrders.slice().reverse();
+  const paginatedOrders = reversedOrders.slice((currentOrdersPage - 1) * 15, currentOrdersPage * 15);
 
   return (
     <div className="space-y-8">
@@ -438,7 +455,7 @@ export default function BranchModule({ initialTab }: { initialTab?: string }) {
             <div className="flex-1 lg:overflow-y-auto pr-2 custom-scrollbar">
               {viewMode === 'grid' ? (
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
-                  {filteredProducts.map(product => {
+                  {paginatedProducts.map(product => {
                     const inCartQty = cart[product.id] || 0;
                     return (
                       <motion.div
@@ -554,7 +571,7 @@ export default function BranchModule({ initialTab }: { initialTab?: string }) {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                      {filteredProducts.map(product => {
+                      {paginatedProducts.map(product => {
                         const inCartQty = cart[product.id] || 0;
                         return (
                           <TableRow key={product.id} className={`border-b border-slate-800/50 hover:bg-slate-800/30 transition-all ${inCartQty > 0 ? 'bg-cyan-500/5' : ''}`}>
@@ -620,6 +637,13 @@ export default function BranchModule({ initialTab }: { initialTab?: string }) {
                 </div>
               </Card>
               )}
+              <Pagination
+                currentPage={currentProductsPage}
+                totalPages={Math.ceil(filteredProducts.length / 15)}
+                onPageChange={setCurrentProductsPage}
+                totalItems={filteredProducts.length}
+                itemsPerPage={15}
+              />
             </div>
 
             <Card className="w-full lg:w-96 shrink-0 border-slate-800 bg-slate-900 shadow-2xl rounded-xl overflow-hidden flex flex-col animate-in fade-in slide-in-from-right-4 duration-500 lg:h-full min-h-[380px] lg:min-h-[500px]">
@@ -998,7 +1022,7 @@ export default function BranchModule({ initialTab }: { initialTab?: string }) {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                    {filteredOrders.slice().reverse().map(order => (
+                    {paginatedOrders.map(order => (
                       <TableRow key={order.id} className="group border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors">
                         <TableCell className="font-mono font-bold text-cyan-500">#{order.id.toUpperCase()}</TableCell>
                         <TableCell className="text-slate-400 font-medium">{new Date(order.createdAt).toLocaleDateString()}</TableCell>
@@ -1123,6 +1147,13 @@ export default function BranchModule({ initialTab }: { initialTab?: string }) {
                   </TableBody>
                 </Table>
               </div>
+              <Pagination
+                currentPage={currentOrdersPage}
+                totalPages={Math.ceil(filteredOrders.length / 15)}
+                onPageChange={setCurrentOrdersPage}
+                totalItems={filteredOrders.length}
+                itemsPerPage={15}
+              />
             </CardContent>
             </Card>
 
@@ -1355,9 +1386,7 @@ export default function BranchModule({ initialTab }: { initialTab?: string }) {
                 variant="ghost" 
                 className="text-rose-500 hover:text-rose-400 hover:bg-rose-500/10 font-bold text-xs h-10 px-4 border border-rose-500/15"
                 onClick={() => {
-                  if(confirm("Tem certeza que deseja cancelar e excluir esta solicitação permanentemente?")) {
-                    handleDeleteOrder(editingOrderId!);
-                  }
+                  handleDeleteOrder(editingOrderId!);
                 }}
               >
                 Excluir Pedido

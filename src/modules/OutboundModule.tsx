@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRamoxContext } from '../services/RamoxContextComponent';
 import ExportExcelModal from '../components/ExportExcelModal';
+import Pagination from '../components/Pagination';
 import { 
   ArrowUpRight, 
   History as HistoryIcon, 
@@ -88,6 +89,7 @@ export default function OutboundModule({ initialTab }: { initialTab?: string }) 
 function OutboundHistoryTab() {
   const { distributions, branches, products } = useRamoxContext();
   const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
 
   const filtered = distributions.filter(d => {
     const branch = branches.find(b => b.id === d.branchId);
@@ -95,6 +97,12 @@ function OutboundHistoryTab() {
     return d.id.toLowerCase().includes(search) || 
            branch?.name.toLowerCase().includes(search);
   });
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
+
+  const paginated = filtered.slice((currentPage - 1) * 15, currentPage * 15);
 
   return (
     <Card className="bg-slate-900 border-slate-800 shadow-2xl">
@@ -155,7 +163,7 @@ function OutboundHistoryTab() {
                   </TableCell>
                 </TableRow>
               ) : (
-                filtered.map((d) => (
+                paginated.map((d) => (
                   <TableRow key={d.id} className="border-slate-800 hover:bg-slate-800/30 transition-colors group">
                     <TableCell className="font-mono text-cyan-400">#{d.id.toUpperCase()}</TableCell>
                     <TableCell className="text-white font-medium">
@@ -190,6 +198,13 @@ function OutboundHistoryTab() {
             </TableBody>
           </Table>
         </div>
+        <Pagination
+          currentPage={currentPage}
+          totalPages={Math.ceil(filtered.length / 15)}
+          onPageChange={setCurrentPage}
+          totalItems={filtered.length}
+          itemsPerPage={15}
+        />
       </CardContent>
     </Card>
   );

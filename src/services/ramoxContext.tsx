@@ -251,6 +251,20 @@ export function useRamox() {
 
   const deleteProduct = (id: string) => {
     setState(prev => ({ ...prev, products: prev.products.filter(p => p.id !== id) }));
+    const client = getSupabase();
+    if (client) {
+      const targetId = toValidUUID(id);
+      (async () => {
+        try {
+          const { error } = await client.from('products').delete().eq('id', targetId);
+          if (error) {
+            await client.from('products').delete().eq('id', id);
+          }
+        } catch (e) {
+          console.warn('Supabase delete product err:', e);
+        }
+      })();
+    }
   };
 
   const updateProduct = (id: string, updates: Partial<Product>) => {
@@ -264,6 +278,24 @@ export function useRamox() {
   const addSupplier = (supplier: Omit<Supplier, 'id'>) => {
     const newSupplier = { ...supplier, id: Math.random().toString(36).substr(2, 9) };
     setState(prev => ({ ...prev, suppliers: [...prev.suppliers, newSupplier] }));
+  };
+
+  const deleteSupplier = (id: string) => {
+    setState(prev => ({ ...prev, suppliers: prev.suppliers.filter(s => s.id !== id) }));
+    const client = getSupabase();
+    if (client) {
+      const targetId = toValidUUID(id);
+      (async () => {
+        try {
+          const { error } = await client.from('suppliers').delete().eq('id', targetId);
+          if (error) {
+            await client.from('suppliers').delete().eq('id', id);
+          }
+        } catch (e) {
+          console.warn('Supabase delete supplier err:', e);
+        }
+      })();
+    }
   };
 
   // Purchase Orders
@@ -456,6 +488,20 @@ export function useRamox() {
       ...prev,
       branchOrders: prev.branchOrders.filter(o => o.id !== id)
     }));
+    const client = getSupabase();
+    if (client) {
+      const targetId = toValidUUID(id);
+      (async () => {
+        try {
+          const { error } = await client.from('branch_orders').delete().eq('id', targetId);
+          if (error) {
+            await client.from('branch_orders').delete().eq('id', id);
+          }
+        } catch (e) {
+          console.warn('Supabase delete branch order err:', e);
+        }
+      })();
+    }
   };
 
   // Users
@@ -474,6 +520,20 @@ export function useRamox() {
 
   const deleteUser = (id: string) => {
     setState(prev => ({ ...prev, users: prev.users.filter(u => u.id !== id) }));
+    const client = getSupabase();
+    if (client) {
+      const targetId = toValidUUID(id);
+      (async () => {
+        try {
+          const { error } = await client.from('users').delete().eq('id', targetId);
+          if (error) {
+            await client.from('users').delete().eq('id', id);
+          }
+        } catch (e) {
+          console.warn('Supabase delete user err:', e);
+        }
+      })();
+    }
   };
 
   // Branches
@@ -492,6 +552,20 @@ export function useRamox() {
 
   const deleteBranch = (id: string) => {
     setState(prev => ({ ...prev, branches: prev.branches.filter(b => b.id !== id) }));
+    const client = getSupabase();
+    if (client) {
+      const targetId = toValidUUID(id);
+      (async () => {
+        try {
+          const { error } = await client.from('branches').delete().eq('id', targetId);
+          if (error) {
+            await client.from('branches').delete().eq('id', id);
+          }
+        } catch (e) {
+          console.warn('Supabase delete branch err:', e);
+        }
+      })();
+    }
   };
 
   // Settings
@@ -520,6 +594,17 @@ export function useRamox() {
         productClassifications: current.filter(c => c !== name)
       };
     });
+    const client = getSupabase();
+    if (client) {
+      (async () => {
+        try {
+          await client.from('product_classifications').delete().eq('name', name);
+          await client.from('categories').delete().eq('name', name);
+        } catch (e) {
+          console.warn('Supabase delete classification err:', e);
+        }
+      })();
+    }
   };
 
   // Inventory Counts
@@ -683,6 +768,7 @@ export function useRamox() {
     deleteProduct,
     updateProduct,
     addSupplier,
+    deleteSupplier,
     createPurchaseOrder,
     updatePurchaseOrderStatus,
     createBranchOrder,

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useRamoxContext } from '../services/RamoxContextComponent';
 import ExportExcelModal from '../components/ExportExcelModal';
 import ImportExcelModal from '../components/ImportExcelModal';
+import { SearchableSelect } from '../components/SearchableSelect';
 import { 
   Settings as SettingsIcon, 
   UserPlus, 
@@ -583,16 +584,18 @@ DO $$ BEGIN CREATE POLICY "Allow public read-write for branch_orders" ON public.
                   {newUser.role === 'branch' && (
                     <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
                       <Label>Vincular à Filial</Label>
-                      <Select value={newUser.branchId} onValueChange={v => setNewUser({...newUser, branchId: v})}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Selecione a filial" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {branches.map(b => (
-                            <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <SearchableSelect
+                        value={newUser.branchId}
+                        onChange={v => setNewUser({...newUser, branchId: v})}
+                        placeholder="Selecione a filial..."
+                        searchPlaceholder="Digite nome ou código da filial..."
+                        options={branches.map(b => ({
+                          value: b.id,
+                          label: b.name,
+                          code: b.code,
+                          sublabel: b.location
+                        }))}
+                      />
                     </div>
                   )}
 

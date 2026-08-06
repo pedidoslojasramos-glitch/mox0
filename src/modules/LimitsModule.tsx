@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useRamoxContext } from '../services/RamoxContextComponent';
 import ExportExcelModal from '../components/ExportExcelModal';
 import Pagination from '../components/Pagination';
+import { SearchableSelect } from '../components/SearchableSelect';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -134,18 +135,18 @@ export default function LimitsModule({ hideHeader = false }: LimitsModuleProps) 
             <CardContent className="p-4 md:p-6 pt-0 md:pt-0 space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="branch-select" className="text-xs md:text-sm font-semibold text-slate-300">Filial de Origem</Label>
-                <Select value={selectedBranchId} onValueChange={setSelectedBranchId}>
-                  <SelectTrigger id="branch-select" className="bg-slate-950 border-slate-800 text-slate-100 placeholder:text-slate-500 focus:ring-cyan-500 animate-pulse-subtle">
-                    <SelectValue placeholder="Selecione uma filial..." />
-                  </SelectTrigger>
-                  <SelectContent className="bg-slate-950 border-slate-800 text-slate-100">
-                    {branches.map(b => (
-                      <SelectItem key={b.id} value={b.id} className="focus:bg-cyan-500 focus:text-white hover:bg-slate-900 cursor-pointer">
-                        {b.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  value={selectedBranchId}
+                  onChange={setSelectedBranchId}
+                  placeholder="Selecione uma filial..."
+                  searchPlaceholder="Digite nome, código ou localidade..."
+                  options={branches.map(b => ({
+                    value: b.id,
+                    label: b.name,
+                    code: b.code,
+                    sublabel: b.location
+                  }))}
+                />
               </div>
 
               {selectedBranch && (

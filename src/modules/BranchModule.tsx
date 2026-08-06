@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useRamoxContext } from '../services/RamoxContextComponent';
 import ExportExcelModal from '../components/ExportExcelModal';
 import Pagination from '../components/Pagination';
+import { SearchableSelect } from '../components/SearchableSelect';
 import { 
   Store, 
   Plus, 
@@ -1323,26 +1324,23 @@ export default function BranchModule({ initialTab }: { initialTab?: string }) {
               </Label>
               <div className="flex flex-col sm:flex-row gap-3">
                 <div className="flex-1">
-                  <Select onValueChange={(val: string) => handleAddProductToEdit(val)}>
-                    <SelectTrigger className="bg-slate-900 border-slate-800 text-slate-300">
-                      <SelectValue placeholder="Selecione um produto para adicionar..." />
-                    </SelectTrigger>
-                    <SelectContent className="bg-slate-900 border-slate-850 text-slate-300 max-h-[220px]">
-                      {products
-                        .filter(p => p.currentStock > 0 && !editingOrderItems.some(item => item.productId === p.id))
-                        .filter(p => editingCategory === 'all' || p.category === editingCategory)
-                        .map(p => (
-                          <SelectItem key={p.id} value={p.id} className="focus:bg-slate-800 focus:text-white hover:bg-slate-800 hover:text-white text-xs text-slate-200">
-                            {p.code} - {p.name} (Disponível: {p.currentStock} {p.unit})
-                          </SelectItem>
-                        ))}
-                      {products.filter(p => p.currentStock > 0 && !editingOrderItems.some(item => item.productId === p.id)).filter(p => editingCategory === 'all' || p.category === editingCategory).length === 0 && (
-                        <div className="text-[11px] p-2 text-center text-slate-500">
-                          Nenhum produto disponível para adicionar nesta classificação
-                        </div>
-                      )}
-                    </SelectContent>
-                  </Select>
+                  <SearchableSelect
+                    value=""
+                    onChange={(val) => handleAddProductToEdit(val)}
+                    placeholder="Selecione um produto para adicionar..."
+                    searchPlaceholder="Digite nome ou código do produto..."
+                    options={products
+                      .filter(p => p.currentStock > 0 && !editingOrderItems.some(item => item.productId === p.id))
+                      .filter(p => editingCategory === 'all' || p.category === editingCategory)
+                      .map(p => ({
+                        value: p.id,
+                        label: p.name,
+                        code: p.code,
+                        sublabel: `Disponível: ${p.currentStock} ${p.unit}`,
+                        category: p.category
+                      }))}
+                    emptyMessage="Nenhum produto disponível com esse filtro/busca"
+                  />
                 </div>
                 <div className="w-full sm:w-48">
                   <Select value={editingCategory} onValueChange={setEditingCategory}>

@@ -3,6 +3,7 @@ import { useRamoxContext } from '../services/RamoxContextComponent';
 import ExportExcelModal from '../components/ExportExcelModal';
 import ImportExcelModal from '../components/ImportExcelModal';
 import { Pagination } from '../components/Pagination';
+import { SearchableSelect } from '../components/SearchableSelect';
 import { 
   Plus, 
   Search, 
@@ -1511,18 +1512,21 @@ function DistributionTab() {
                   <Building2 size={13} className="text-cyan-400" />
                   Filial (40 Unidades)
                 </label>
-                <select
+                <SearchableSelect
                   value={trackingBranchFilter}
-                  onChange={(e) => setTrackingBranchFilter(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs font-bold text-white focus:outline-none focus:border-cyan-500 transition-colors"
-                >
-                  <option value="all">Todas as 40 Filiais</option>
-                  {branches.map(b => (
-                    <option key={b.id} value={b.id}>
-                      {b.name} ({b.code})
-                    </option>
-                  ))}
-                </select>
+                  onChange={setTrackingBranchFilter}
+                  placeholder="Todas as 40 Filiais"
+                  searchPlaceholder="Digite nome ou código da filial..."
+                  options={[
+                    { value: 'all', label: 'Todas as 40 Filiais' },
+                    ...branches.map(b => ({
+                      value: b.id,
+                      label: b.name,
+                      code: b.code,
+                      sublabel: b.location
+                    }))
+                  ]}
+                />
               </div>
 
               {/* Filtro de Tipo */}
@@ -3256,14 +3260,19 @@ function PurchasesTab() {
                       <div className="space-y-4">
                         <div className="space-y-2">
                           <Label className="text-[9px] font-bold uppercase text-slate-500 tracking-widest">Selecionar Parceiro</Label>
-                          <Select value={selectedSupplier} onValueChange={setSelectedSupplier}>
-                            <SelectTrigger className="h-10 rounded-lg bg-slate-900 border-slate-800 shadow-inner text-slate-200 focus:ring-cyan-500/50 text-xs">
-                              <SelectValue placeholder="Escolha um fornecedor..." />
-                            </SelectTrigger>
-                            <SelectContent className="bg-slate-900 border-slate-800 text-slate-200">
-                              {suppliers.map(s => <SelectItem key={s.id} value={s.id} className="focus:bg-slate-800 cursor-pointer text-xs">{s.name}</SelectItem>)}
-                            </SelectContent>
-                          </Select>
+                          <SearchableSelect
+                            value={selectedSupplier}
+                            onChange={setSelectedSupplier}
+                            placeholder="Escolha um fornecedor..."
+                            searchPlaceholder="Digite nome, código ou CNPJ..."
+                            clearable={true}
+                            options={suppliers.map(s => ({
+                              value: s.id,
+                              label: s.name,
+                              code: s.code,
+                              sublabel: s.cnpj ? `CNPJ: ${s.cnpj}` : undefined
+                            }))}
+                          />
                         </div>
                         
                         {selectedSupplier && (
@@ -3351,7 +3360,7 @@ function PurchasesTab() {
                           </Select>
                         </div>
 
-                        {(productSearch || poCategory !== 'all') && (
+                        {(productSearch.trim() !== '' || poCategory !== 'all') && (
                           <motion.div 
                             initial={{ opacity: 0, y: -10 }}
                             animate={{ opacity: 1, y: 0 }}
@@ -3359,57 +3368,75 @@ function PurchasesTab() {
                           >
                             <div className="p-2 border-b border-slate-800 bg-slate-950/50 flex items-center justify-between">
                               <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest px-2">Resultados da Busca</p>
+                              {productSearch.trim() === '' && poCategory !== 'all' && (
+                                <span className="text-[9px] font-bold text-cyan-400 px-2">Filtrado por: {poCategory}</span>
+                              )}
                             </div>
                             <div className="overflow-y-auto custom-scrollbar p-1">
-                              {products
-                                .filter(p => {
-                                  const matchesSearch = p.name.toLowerCase().includes(productSearch.toLowerCase()) || 
-                                                        p.code.toLowerCase().includes(productSearch.toLowerCase());
+                              {(() => {
+                                const q = productSearch.trim().toLowerCase();
+                                const matches = products.filter(p => {
+                                  const matchesSearch = !q || 
+                                    p.name.toLowerCase().includes(q) || 
+                                    p.code.toLowerCase().includes(q) ||
+                                    p.category.toLowerCase().includes(q) ||
+                                    p.unit.toLowerCase().includes(q);
                                   const matchesCategory = poCategory === 'all' || p.category === poCategory;
                                   return matchesSearch && matchesCategory;
-                                })
-                                .map(p => (
-                                  <div 
-                                    key={p.id}
-                                    onClick={() => handleAddProduct(p.id)}
-                                    className="flex items-center justify-between p-2 hover:bg-slate-800 rounded-lg cursor-pointer transition-all border border-transparent hover:border-cyan-500/30 group"
-                                  >
-                                    <div className="flex items-center gap-3">
-                                      <div className="w-9 h-9 rounded-lg overflow-hidden border border-slate-800 flex-shrink-0">
-                                        {p.image ? (
-                                          <img src={p.image} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                                        ) : (
-                                          <div className="w-full h-full bg-slate-950 flex items-center justify-center text-slate-700">
-                                            <Package size={16} />
+                                });
+
+                                if (matches.length === 0) {
+                                  return (
+                                    <div className="p-8 text-center text-slate-600">
+                                      <Search size={28} className="mx-auto mb-2 opacity-30 text-cyan-400" />
+                                      <p className="text-xs font-semibold text-slate-300">Nenhum produto com essa relação.</p>
+                                      <p className="text-[11px] text-slate-500 mt-0.5">Tente pesquisar por parte do nome ou código.</p>
+                                    </div>
+                                  );
+                                }
+
+                                const displayed = (!q && poCategory !== 'all') ? matches.slice(0, 15) : matches;
+
+                                return (
+                                  <>
+                                    {displayed.map(p => (
+                                      <div 
+                                        key={p.id}
+                                        onClick={() => handleAddProduct(p.id)}
+                                        className="flex items-center justify-between p-2 hover:bg-slate-800 rounded-lg cursor-pointer transition-all border border-transparent hover:border-cyan-500/30 group"
+                                      >
+                                        <div className="flex items-center gap-3">
+                                          <div className="w-9 h-9 rounded-lg overflow-hidden border border-slate-800 flex-shrink-0">
+                                            {p.image ? (
+                                              <img src={p.image} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                            ) : (
+                                              <div className="w-full h-full bg-slate-950 flex items-center justify-center text-slate-700">
+                                                <Package size={16} />
+                                              </div>
+                                            )}
                                           </div>
-                                        )}
-                                      </div>
-                                      <div>
-                                        <div className="flex items-center gap-2">
-                                          <span className="text-[9px] font-black font-mono text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded uppercase">#{p.code}</span>
-                                          <span className="font-bold text-slate-200 uppercase text-xs">{p.name}</span>
+                                          <div>
+                                            <div className="flex items-center gap-2">
+                                              <span className="text-[9px] font-black font-mono text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded uppercase">#{p.code}</span>
+                                              <span className="font-bold text-slate-200 uppercase text-xs">{p.name}</span>
+                                            </div>
+                                            <p className="text-[8px] text-slate-500 mt-0.5 font-bold uppercase tracking-wider">{p.category} • {p.unit}</p>
+                                          </div>
                                         </div>
-                                        <p className="text-[8px] text-slate-500 mt-0.5 font-bold uppercase tracking-wider">{p.category} • {p.unit}</p>
+                                        <div className="text-right">
+                                          <p className="text-sm font-black text-emerald-400">R$ {p.price.toFixed(2)}</p>
+                                          <p className="text-[8px] text-slate-600 font-bold uppercase tracking-tighter">Estoque: {p.currentStock}</p>
+                                        </div>
                                       </div>
-                                    </div>
-                                    <div className="text-right">
-                                      <p className="text-sm font-black text-emerald-400">R$ {p.price.toFixed(2)}</p>
-                                      <p className="text-[8px] text-slate-600 font-bold uppercase tracking-tighter">Estoque: {p.currentStock}</p>
-                                    </div>
-                                  </div>
-                                ))
-                              }
-                              {products.filter(p => {
-                                const matchesSearch = p.name.toLowerCase().includes(productSearch.toLowerCase()) || 
-                                                      p.code.toLowerCase().includes(productSearch.toLowerCase());
-                                const matchesCategory = poCategory === 'all' || p.category === poCategory;
-                                return matchesSearch && matchesCategory;
-                              }).length === 0 && (
-                                <div className="p-12 text-center text-slate-600">
-                                  <Search size={32} className="mx-auto mb-3 opacity-20" />
-                                  <p className="text-sm font-medium">Nenhum produto encontrado.</p>
-                                </div>
-                              )}
+                                    ))}
+                                    {!q && matches.length > 15 && (
+                                      <div className="p-2 text-center text-[10px] text-slate-500 border-t border-slate-800/50">
+                                        Exibindo 15 de {matches.length} itens. Digite no campo de busca para filtrar.
+                                      </div>
+                                    )}
+                                  </>
+                                );
+                              })()}
                             </div>
                           </motion.div>
                         )}
@@ -3595,16 +3622,21 @@ function PurchasesTab() {
 
             <div className="space-y-1.5">
               <Label className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Filtrar por Fornecedor</Label>
-              <select 
-                value={listSupplierFilter} 
-                onChange={(e) => setListSupplierFilter(e.target.value)}
-                className="w-full bg-slate-900 border-slate-800 rounded-md h-9 text-slate-200 text-sm px-3 focus:ring-1 focus:ring-cyan-500 outline-none transition-all"
-              >
-                <option value="all">Todos os Fornecedores</option>
-                {suppliers.map(s => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </select>
+              <SearchableSelect
+                value={listSupplierFilter}
+                onChange={setListSupplierFilter}
+                placeholder="Todos os Fornecedores"
+                searchPlaceholder="Digite nome do fornecedor..."
+                options={[
+                  { value: 'all', label: 'Todos os Fornecedores' },
+                  ...suppliers.map(s => ({
+                    value: s.id,
+                    label: s.name,
+                    code: s.code,
+                    sublabel: s.cnpj ? `CNPJ: ${s.cnpj}` : undefined
+                  }))
+                ]}
+              />
             </div>
 
             <div className="space-y-1.5">
@@ -3872,16 +3904,21 @@ function ApprovalTab() {
 
             <div className="space-y-1.5">
               <Label className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Filial de Destino</Label>
-              <select 
-                value={branchFilter} 
-                onChange={(e) => setBranchFilter(e.target.value)}
-                className="w-full bg-slate-900 border-slate-800 rounded-md h-9 text-slate-200 text-sm px-3 focus:ring-1 focus:ring-cyan-500 outline-none transition-all"
-              >
-                <option value="all">Todas as Filiais</option>
-                {branches.map(b => (
-                  <option key={b.id} value={b.id}>{b.name}</option>
-                ))}
-              </select>
+              <SearchableSelect
+                value={branchFilter}
+                onChange={setBranchFilter}
+                placeholder="Todas as Filiais"
+                searchPlaceholder="Digite nome ou código da filial..."
+                options={[
+                  { value: 'all', label: 'Todas as Filiais' },
+                  ...branches.map(b => ({
+                    value: b.id,
+                    label: b.name,
+                    code: b.code,
+                    sublabel: b.location
+                  }))
+                ]}
+              />
             </div>
 
             <div className="space-y-1.5">

@@ -40,6 +40,44 @@ export function toValidUUID(id: string): string {
   return `${strHex.slice(0,8)}-${strHex.slice(8,12)}-4${strHex.slice(13,16)}-8${strHex.slice(17,20)}-${strHex.slice(20,32)}`;
 }
 
+const DELETED_KEY = 'ramox_deleted_ids_v1';
+
+export function getDeletedIds(): Set<string> {
+  try {
+    if (typeof window === 'undefined') return new Set();
+    const raw = localStorage.getItem(DELETED_KEY);
+    if (raw) return new Set(JSON.parse(raw));
+  } catch (e) {}
+  return new Set();
+}
+
+export function markAsDeleted(...ids: (string | undefined | null)[]) {
+  try {
+    if (typeof window === 'undefined') return;
+    const set = getDeletedIds();
+    ids.forEach(id => {
+      if (id) {
+        const str = id.toString().trim();
+        if (str) {
+          set.add(str.toLowerCase());
+          const uuid = toValidUUID(str);
+          if (uuid) set.add(uuid.toLowerCase());
+        }
+      }
+    });
+    localStorage.setItem(DELETED_KEY, JSON.stringify(Array.from(set)));
+  } catch (e) {}
+}
+
+export function isDeleted(id: string | undefined | null): boolean {
+  if (!id) return false;
+  const set = getDeletedIds();
+  const clean = id.toString().trim().toLowerCase();
+  if (set.has(clean)) return true;
+  const uuid = toValidUUID(id.toString()).toLowerCase();
+  return set.has(uuid);
+}
+
 export function useRamox() {
   const [state, setState] = useState(mockDb.get());
   const [globalSearch, setGlobalSearch] = useState('');
@@ -71,41 +109,47 @@ export function useRamox() {
           let updated = { ...prev };
 
           if (!errBranches && Array.isArray(dbBranches)) {
-            updated.branches = dbBranches.map((b: any) => ({
-              id: b.id,
-              name: b.name,
-              location: b.location || '',
-              manager: b.manager || ''
-            }));
+            updated.branches = dbBranches
+              .filter((b: any) => b && !isDeleted(b.id))
+              .map((b: any) => ({
+                id: b.id,
+                name: b.name,
+                location: b.location || '',
+                manager: b.manager || ''
+              }));
           }
 
           if (!errSuppliers && Array.isArray(dbSuppliers)) {
-            updated.suppliers = dbSuppliers.map((s: any) => ({
-              id: s.id,
-              name: s.name,
-              code: s.code,
-              cnpj: s.cnpj || '',
-              contact: s.contact || ''
-            }));
+            updated.suppliers = dbSuppliers
+              .filter((s: any) => s && !isDeleted(s.id))
+              .map((s: any) => ({
+                id: s.id,
+                name: s.name,
+                code: s.code,
+                cnpj: s.cnpj || '',
+                contact: s.contact || ''
+              }));
           }
 
           if (!errProducts && Array.isArray(dbProducts)) {
-            updated.products = dbProducts.map((p: any) => ({
-              id: p.id,
-              name: p.name,
-              code: p.code,
-              category: p.category,
-              unit: p.unit,
-              price: Number(p.price) || 0,
-              currentStock: p.current_stock ?? p.currentStock ?? 0,
-              minStock: p.min_stock ?? p.minStock ?? 0,
-              image: p.image || ''
-            }));
+            updated.products = dbProducts
+              .filter((p: any) => p && !isDeleted(p.id) && !isDeleted(p.code))
+              .map((p: any) => ({
+                id: p.id,
+                name: p.name,
+                code: p.code,
+                category: p.category,
+                unit: p.unit,
+                price: Number(p.price) || 0,
+                currentStock: p.current_stock ?? p.currentStock ?? 0,
+                minStock: p.min_stock ?? p.minStock ?? 0,
+                image: p.image || ''
+              }));
           }
 
           if (!errUsers && Array.isArray(dbUsers)) {
             const fetchedUsers = dbUsers
-              .filter((u: any) => u && u.id)
+              .filter((u: any) => u && u.id && !isDeleted(u.id) && !isDeleted(u.email))
               .map((u: any) => ({
                 id: u.id,
                 name: u.name || 'Usuário',
@@ -121,23 +165,25 @@ export function useRamox() {
                 .map((u: any) => u.email.toLowerCase().trim())
             );
             const localOnlyUsers = prev.users.filter(
-              u => u && u.email && !existingEmails.has(u.email.toLowerCase().trim())
+              u => u && u.email && !isDeleted(u.id) && !isDeleted(u.email) && !existingEmails.has(u.email.toLowerCase().trim())
             );
 
             updated.users = [...fetchedUsers, ...localOnlyUsers];
           }
 
           if (!errOrders && Array.isArray(dbBranchOrders)) {
-            updated.branchOrders = dbBranchOrders.map((o: any) => ({
-              id: o.id,
-              branchId: o.branch_id || o.branchId,
-              status: o.status,
-              totalValue: Number(o.total_value ?? o.totalValue) || 0,
-              items: o.items || [],
-              createdAt: o.created_at || o.createdAt,
-              approvedBy: o.approved_by || o.approvedBy || undefined,
-              approvedAt: o.approved_at || o.approvedAt || undefined
-            }));
+            updated.branchOrders = dbBranchOrders
+              .filter((o: any) => o && !isDeleted(o.id))
+              .map((o: any) => ({
+                id: o.id,
+                branchId: o.branch_id || o.branchId,
+                status: o.status,
+                totalValue: Number(o.total_value ?? o.totalValue) || 0,
+                items: o.items || [],
+                createdAt: o.created_at || o.createdAt,
+                approvedBy: o.approved_by || o.approvedBy || undefined,
+                approvedAt: o.approved_at || o.approvedAt || undefined
+              }));
           }
           return updated;
         });
@@ -266,10 +312,21 @@ export function useRamox() {
   };
 
   const deleteProduct = (id: string) => {
-    setState(prev => ({ ...prev, products: prev.products.filter(p => p.id !== id) }));
+    markAsDeleted(id);
+    const targetId = toValidUUID(id);
+    markAsDeleted(targetId);
+
+    setState(prev => {
+      const updated = {
+        ...prev,
+        products: prev.products.filter(p => p.id !== id && p.id !== targetId)
+      };
+      mockDb.save(updated);
+      return updated;
+    });
+
     const client = getSupabase();
     if (client) {
-      const targetId = toValidUUID(id);
       (async () => {
         try {
           const { error } = await client.from('products').delete().eq('id', targetId);
@@ -297,10 +354,21 @@ export function useRamox() {
   };
 
   const deleteSupplier = (id: string) => {
-    setState(prev => ({ ...prev, suppliers: prev.suppliers.filter(s => s.id !== id) }));
+    markAsDeleted(id);
+    const targetId = toValidUUID(id);
+    markAsDeleted(targetId);
+
+    setState(prev => {
+      const updated = {
+        ...prev,
+        suppliers: prev.suppliers.filter(s => s.id !== id && s.id !== targetId)
+      };
+      mockDb.save(updated);
+      return updated;
+    });
+
     const client = getSupabase();
     if (client) {
-      const targetId = toValidUUID(id);
       (async () => {
         try {
           const { error } = await client.from('suppliers').delete().eq('id', targetId);
@@ -500,13 +568,21 @@ export function useRamox() {
   };
 
   const deleteBranchOrder = (id: string) => {
-    setState(prev => ({
-      ...prev,
-      branchOrders: prev.branchOrders.filter(o => o.id !== id)
-    }));
+    markAsDeleted(id);
+    const targetId = toValidUUID(id);
+    markAsDeleted(targetId);
+
+    setState(prev => {
+      const updated = {
+        ...prev,
+        branchOrders: prev.branchOrders.filter(o => o.id !== id && o.id !== targetId)
+      };
+      mockDb.save(updated);
+      return updated;
+    });
+
     const client = getSupabase();
     if (client) {
-      const targetId = toValidUUID(id);
       (async () => {
         try {
           const { error } = await client.from('branch_orders').delete().eq('id', targetId);
@@ -535,10 +611,25 @@ export function useRamox() {
   };
 
   const deleteUser = (id: string) => {
-    setState(prev => ({ ...prev, users: prev.users.filter(u => u.id !== id) }));
+    markAsDeleted(id);
+    const targetId = toValidUUID(id);
+    markAsDeleted(targetId);
+
+    setState(prev => {
+      const targetUser = prev.users.find(u => u.id === id || u.id === targetId);
+      if (targetUser && targetUser.email) {
+        markAsDeleted(targetUser.email);
+      }
+      const updated = {
+        ...prev,
+        users: prev.users.filter(u => u.id !== id && u.id !== targetId)
+      };
+      mockDb.save(updated);
+      return updated;
+    });
+
     const client = getSupabase();
     if (client) {
-      const targetId = toValidUUID(id);
       (async () => {
         try {
           const { error } = await client.from('users').delete().eq('id', targetId);
@@ -567,10 +658,21 @@ export function useRamox() {
   };
 
   const deleteBranch = (id: string) => {
-    setState(prev => ({ ...prev, branches: prev.branches.filter(b => b.id !== id) }));
+    markAsDeleted(id);
+    const targetId = toValidUUID(id);
+    markAsDeleted(targetId);
+
+    setState(prev => {
+      const updated = {
+        ...prev,
+        branches: prev.branches.filter(b => b.id !== id && b.id !== targetId)
+      };
+      mockDb.save(updated);
+      return updated;
+    });
+
     const client = getSupabase();
     if (client) {
-      const targetId = toValidUUID(id);
       (async () => {
         try {
           const { error } = await client.from('branches').delete().eq('id', targetId);
@@ -603,13 +705,18 @@ export function useRamox() {
   };
 
   const deleteProductClassification = (name: string) => {
+    markAsDeleted(name);
+
     setState(prev => {
       const current = prev.productClassifications || [];
-      return {
+      const updated = {
         ...prev,
         productClassifications: current.filter(c => c !== name)
       };
+      mockDb.save(updated);
+      return updated;
     });
+
     const client = getSupabase();
     if (client) {
       (async () => {

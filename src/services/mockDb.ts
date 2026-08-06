@@ -69,6 +69,22 @@ const initialState: DbState = {
   productClassifications: ['Alimentos', 'Bebidas', 'Limpeza', 'Higiene', 'Descartáveis', 'EPIs'],
 };
 
+const DELETED_KEY = 'ramox_deleted_ids_v1';
+
+function isRecordDeleted(id: string | undefined | null): boolean {
+  if (!id) return false;
+  try {
+    if (typeof window === 'undefined') return false;
+    const raw = localStorage.getItem(DELETED_KEY);
+    if (!raw) return false;
+    const set = new Set(JSON.parse(raw));
+    const clean = id.toString().toLowerCase().trim();
+    return set.has(clean);
+  } catch (e) {
+    return false;
+  }
+}
+
 export const mockDb = {
   get: (): DbState => {
     try {
@@ -89,24 +105,23 @@ export const mockDb = {
       
       const isInitialized = Boolean(parsed && parsed._initialized);
 
-      const loadedUsers = Array.isArray(parsed.users) 
-        ? parsed.users.map((u: any) => ({
-            ...u,
-            password: u?.password || '123'
-          })) 
-        : initialState.users;
+      const loadedUsers = (Array.isArray(parsed.users) ? parsed.users : initialState.users)
+        .filter((u: any) => u && !isRecordDeleted(u.id) && !isRecordDeleted(u.email))
+        .map((u: any) => ({
+          ...u,
+          password: u?.password || '123'
+        }));
 
-      const loadedClassifications = Array.isArray(parsed.productClassifications) 
+      const loadedClassifications = (Array.isArray(parsed.productClassifications) 
         ? parsed.productClassifications 
-        : [...initialState.productClassifications];
+        : [...initialState.productClassifications]).filter((c: string) => !isRecordDeleted(c));
       
-      if (!loadedClassifications.includes('EPIs')) {
+      if (!isInitialized && !loadedClassifications.includes('EPIs')) {
         loadedClassifications.push('EPIs');
       }
 
-      const loadedProducts = Array.isArray(parsed.products) 
-        ? parsed.products 
-        : [...initialState.products];
+      const loadedProducts = (Array.isArray(parsed.products) ? parsed.products : [...initialState.products])
+        .filter((p: any) => p && !isRecordDeleted(p.id) && !isRecordDeleted(p.code));
 
       // Only add default EPIs if database has never been initialized
       if (!isInitialized) {
@@ -120,19 +135,31 @@ export const mockDb = {
         }
       }
 
+      const loadedBranches = (Array.isArray(parsed.branches) ? parsed.branches : initialState.branches)
+        .filter((b: any) => b && !isRecordDeleted(b.id));
+
+      const loadedSuppliers = (Array.isArray(parsed.suppliers) ? parsed.suppliers : initialState.suppliers)
+        .filter((s: any) => s && !isRecordDeleted(s.id));
+
+      const loadedBranchOrders = (Array.isArray(parsed.branchOrders) ? parsed.branchOrders : [])
+        .filter((o: any) => o && !isRecordDeleted(o.id));
+
+      const loadedPurchaseOrders = (Array.isArray(parsed.purchaseOrders) ? parsed.purchaseOrders : [])
+        .filter((po: any) => po && !isRecordDeleted(po.id));
+
       return {
         ...initialState,
         ...parsed,
-        users: Array.isArray(parsed.users) ? loadedUsers : initialState.users,
+        users: loadedUsers,
         currentUser: null, // Always start logged out as per user request
         settings: parsed.settings || initialState.settings,
         branchLimits: Array.isArray(parsed.branchLimits) ? parsed.branchLimits : [],
         productClassifications: loadedClassifications,
-        products: Array.isArray(parsed.products) ? loadedProducts : initialState.products,
-        branches: Array.isArray(parsed.branches) ? parsed.branches : initialState.branches,
-        suppliers: Array.isArray(parsed.suppliers) ? parsed.suppliers : initialState.suppliers,
-        purchaseOrders: Array.isArray(parsed.purchaseOrders) ? parsed.purchaseOrders : [],
-        branchOrders: Array.isArray(parsed.branchOrders) ? parsed.branchOrders : [],
+        products: loadedProducts,
+        branches: loadedBranches,
+        suppliers: loadedSuppliers,
+        purchaseOrders: loadedPurchaseOrders,
+        branchOrders: loadedBranchOrders,
         inventoryCounts: Array.isArray(parsed.inventoryCounts) ? parsed.inventoryCounts : [],
         distributions: Array.isArray(parsed.distributions) ? parsed.distributions : [],
       };

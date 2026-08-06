@@ -662,25 +662,25 @@ function ProductsTab() {
           <TableBody>
             {paginatedProducts.map((p) => (
               <TableRow key={p.id} className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors">
-                <TableCell className="max-w-[200px] md:max-w-[260px]">
+                <TableCell className="py-2.5 px-3">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-md bg-slate-800 overflow-hidden border border-slate-700 flex-shrink-0 shadow-inner">
+                    <div className="w-9 h-9 rounded-md bg-slate-800 overflow-hidden border border-slate-700 flex-shrink-0 shadow-inner">
                       {p.image ? (
                         <img src={p.image} alt={p.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-slate-600">
-                          <Package size={18} />
+                          <Package size={16} />
                         </div>
                       )}
                     </div>
-                    <div className="min-w-0">
-                      <div className="font-bold text-slate-200 text-xs md:text-sm truncate" title={p.name}>{p.name}</div>
-                      <div className="text-[11px] font-mono text-cyan-500/70 truncate">{p.code}</div>
+                    <div>
+                      <div className="font-bold text-slate-200 text-xs break-words">{p.name}</div>
+                      <div className="text-[11px] font-mono text-cyan-500/70">{p.code}</div>
                     </div>
                   </div>
                 </TableCell>
-                <TableCell className="max-w-[130px]">
-                  <Badge variant="outline" className="text-[10px] font-bold uppercase tracking-wider bg-slate-800/50 border-slate-700 text-slate-400 truncate max-w-full block text-center" title={p.category}>
+                <TableCell className="py-2.5 px-3">
+                  <Badge variant="outline" className="text-[10px] font-bold uppercase tracking-wider bg-slate-800/50 border-slate-700 text-slate-400 break-words block text-center">
                     {p.category}
                   </Badge>
                 </TableCell>
@@ -862,13 +862,13 @@ function SuppliersTab() {
           <TableBody>
             {paginatedSuppliers.map((s) => (
               <TableRow key={s.id} className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors">
-                <TableCell className="font-mono text-xs font-bold text-cyan-500/70 whitespace-nowrap">{s.code}</TableCell>
-                <TableCell className="max-w-[200px] md:max-w-[260px]">
-                  <div className="font-bold text-slate-200 text-xs md:text-sm truncate" title={s.name}>{s.name}</div>
+                <TableCell className="font-mono text-xs font-bold text-cyan-500/70 whitespace-nowrap py-2.5 px-3">{s.code}</TableCell>
+                <TableCell className="py-2.5 px-3">
+                  <div className="font-bold text-slate-200 text-xs break-words">{s.name}</div>
                 </TableCell>
-                <TableCell className="text-slate-400 font-mono text-xs whitespace-nowrap">{s.cnpj}</TableCell>
-                <TableCell className="text-slate-400 font-medium text-xs max-w-[160px]">
-                  <div className="truncate" title={s.contact}>{s.contact}</div>
+                <TableCell className="text-slate-400 font-mono text-xs whitespace-nowrap py-2.5 px-3">{s.cnpj}</TableCell>
+                <TableCell className="text-slate-400 font-medium text-xs py-2.5 px-3">
+                  <div className="break-words">{s.contact}</div>
                 </TableCell>
                 <TableCell className="text-right whitespace-nowrap">
                   <div className="flex justify-end gap-1">
@@ -3664,9 +3664,9 @@ function PurchasesTab() {
                       </Button>
                     </TableCell>
                     <TableCell className="font-mono font-bold text-cyan-500 uppercase tracking-tighter">#{o.id.toUpperCase()}</TableCell>
-                    <TableCell className="max-w-[180px] md:max-w-[240px]">
-                      <div className="font-bold text-slate-200 text-xs md:text-sm truncate" title={supplier?.name}>{supplier?.name}</div>
-                      <div className="text-[10px] text-slate-500 font-mono tracking-wider truncate">{supplier?.cnpj}</div>
+                    <TableCell className="py-2.5 px-3">
+                      <div className="font-bold text-slate-200 text-xs break-words">{supplier?.name}</div>
+                      <div className="text-[10px] text-slate-500 font-mono tracking-wider">{supplier?.cnpj}</div>
                     </TableCell>
                     <TableCell className="text-slate-400 font-medium text-xs whitespace-nowrap">{new Date(o.createdAt).toLocaleDateString('pt-BR')}</TableCell>
                     <TableCell className="font-bold text-white text-xs md:text-sm whitespace-nowrap">R$ {o.totalValue?.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) || '0,00'}</TableCell>
@@ -3951,8 +3951,8 @@ function ApprovalTab() {
                     <TableCell className={`font-mono font-bold ${isDiscrepancy ? 'text-red-500' : 'text-cyan-500'}`}>
                       #{order.id.toUpperCase()}
                     </TableCell>
-                    <TableCell className="max-w-[160px] md:max-w-[220px]">
-                      <div className="font-bold text-slate-200 text-xs md:text-sm truncate" title={branch?.name}>{branch?.name}</div>
+                    <TableCell className="py-2.5 px-3">
+                      <div className="font-bold text-slate-200 text-xs break-words">{branch?.name}</div>
                     </TableCell>
                     <TableCell className="text-slate-400 font-medium text-xs whitespace-nowrap">{new Date(order.createdAt).toLocaleDateString('pt-BR')}</TableCell>
                     <TableCell className="text-center whitespace-nowrap">
@@ -4242,9 +4242,9 @@ function InvoicingTab() {
                 return (
                   <TableRow key={order.id} className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors">
                     <TableCell className="font-mono font-bold text-cyan-450 text-cyan-400">#{order.id.toUpperCase()}</TableCell>
-                    <TableCell className="max-w-[160px] md:max-w-[220px]">
-                      <div className="font-bold text-slate-200 text-xs md:text-sm truncate" title={branch?.name}>{branch?.name}</div>
-                      <div className="text-[10px] text-slate-500 uppercase tracking-widest truncate">{branch?.location}</div>
+                    <TableCell className="py-2.5 px-3">
+                      <div className="font-bold text-slate-200 text-xs break-words">{branch?.name}</div>
+                      <div className="text-[10px] text-slate-500 uppercase tracking-widest break-words">{branch?.location}</div>
                     </TableCell>
                     <TableCell className="text-slate-400 text-xs font-medium whitespace-nowrap">{orderDate}</TableCell>
                     <TableCell className="whitespace-nowrap">

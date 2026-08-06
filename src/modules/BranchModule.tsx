@@ -684,7 +684,7 @@ export default function BranchModule({ initialTab }: { initialTab?: string }) {
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="font-bold text-slate-200 text-[11px] truncate uppercase group-hover:text-cyan-400 transition-colors">{product.name}</p>
+                        <p className="font-bold text-slate-200 text-[11px] break-words uppercase group-hover:text-cyan-400 transition-colors">{product.name}</p>
                         <div className="flex items-center justify-between mt-0.5">
                           <p className="text-[9px] text-slate-500 font-bold">
                             <span className="text-cyan-500">{qty}x</span> R$ {product.price.toFixed(2)}
@@ -837,7 +837,7 @@ export default function BranchModule({ initialTab }: { initialTab?: string }) {
                               </div>
                               <div className="min-w-0">
                                 <span className="text-[10px] font-mono text-cyan-400 uppercase tracking-wider">#{product.code}</span>
-                                <h4 className="text-xs font-bold text-slate-100 uppercase truncate max-w-[250px]">{product.name}</h4>
+                                <h4 className="text-xs font-bold text-slate-100 uppercase break-words">{product.name}</h4>
                                 <p className="text-[10px] text-slate-500 font-medium">Unidade: {product.unit} | Preço: R$ {product.price.toFixed(2)}</p>
                               </div>
                             </div>
@@ -907,7 +907,7 @@ export default function BranchModule({ initialTab }: { initialTab?: string }) {
                           if (!product) return null;
                           return (
                             <div key={id} className="flex items-center justify-between p-2.5 bg-slate-900/50 rounded-lg border border-slate-800/40">
-                              <span className="text-xs font-medium text-slate-300 uppercase truncate max-w-[200px]">{product.name}</span>
+                              <span className="text-xs font-medium text-slate-300 uppercase break-words">{product.name}</span>
                               <span className="text-xs font-bold text-slate-400 bg-slate-950 px-2 py-0.5 rounded font-mono">{qty} {product.unit}</span>
                             </div>
                           );
@@ -1258,7 +1258,7 @@ export default function BranchModule({ initialTab }: { initialTab?: string }) {
                           />
                         )}
                         <div className="min-w-0">
-                          <p className="font-bold text-xs text-slate-200 uppercase truncate">{product.name}</p>
+                          <p className="font-bold text-xs text-slate-200 uppercase break-words">{product.name}</p>
                           <div className="flex items-center gap-2 text-[10px] text-slate-500 font-mono mt-0.5">
                             <span className="text-cyan-500 font-bold">{product.code}</span>
                             <span>•</span>

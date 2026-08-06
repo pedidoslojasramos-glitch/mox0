@@ -340,11 +340,11 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                       return (
                         <TableRow key={order.id} className="group border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors">
                           <TableCell className="font-mono font-bold text-cyan-400 pl-6">#{order.id.toUpperCase()}</TableCell>
-                          <TableCell className="max-w-[160px] md:max-w-[220px]">
-                            <div className="font-bold text-slate-200 text-xs md:text-sm truncate" title={branch?.name}>{branch?.name}</div>
+                          <TableCell className="py-2.5 px-3">
+                            <div className="font-bold text-slate-200 text-xs break-words">{branch?.name}</div>
                           </TableCell>
-                          <TableCell className="text-slate-400 text-xs font-semibold max-w-[140px]">
-                            <div className="truncate" title={branch?.location}>{branch?.location}</div>
+                          <TableCell className="py-2.5 px-3">
+                            <div className="text-slate-400 text-xs font-semibold break-words">{branch?.location}</div>
                           </TableCell>
                           <TableCell className="text-center">
                             {order.status === 'picking' ? (
@@ -496,7 +496,7 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                                 const p = products.find(prod => prod.id === item.productId);
                                 return (
                                   <div key={sIdx} className="flex justify-between py-1.5 first:pt-0 last:pb-0 font-medium">
-                                    <span className="text-slate-400 max-w-[180px] truncate">{p?.name}</span>
+                                    <span className="text-slate-400 break-words pr-2">{p?.name}</span>
                                     <span className="text-white font-bold">{item.quantity} {p?.unit || 'un'}</span>
                                   </div>
                                 );
@@ -646,9 +646,9 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                             <TableCell className="font-black text-cyan-400">
                               #{order.id.toUpperCase()}
                             </TableCell>
-                            <TableCell className="max-w-[160px] md:max-w-[220px]">
-                              <div className="font-bold text-white text-xs md:text-sm truncate" title={branch?.name || order.branchId}>{branch?.name || order.branchId}</div>
-                              <div className="text-xs text-slate-400 truncate" title={branch?.location || 'Filial Lojas Ramos'}>{branch?.location || 'Filial Lojas Ramos'}</div>
+                            <TableCell className="py-2.5 px-3">
+                              <div className="font-bold text-white text-xs break-words">{branch?.name || order.branchId}</div>
+                              <div className="text-xs text-slate-400 break-words">{branch?.location || 'Filial Lojas Ramos'}</div>
                             </TableCell>
                             <TableCell className="text-xs text-slate-300 font-medium whitespace-nowrap">
                               {new Date(order.createdAt).toLocaleDateString('pt-BR')}
@@ -835,8 +835,10 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                       const supplier = suppliers.find(s => s.id === order.supplierId);
                       return (
                         <TableRow key={order.id} className="group border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors">
-                          <TableCell className="font-mono font-bold text-cyan-500">#{order.id.toUpperCase()}</TableCell>
-                          <TableCell className="font-bold text-slate-200">{supplier?.name}</TableCell>
+                          <TableCell className="font-mono font-bold text-cyan-500 text-xs whitespace-nowrap py-2.5 px-3">#{order.id.toUpperCase()}</TableCell>
+                          <TableCell className="py-2.5 px-3">
+                            <div className="font-bold text-slate-200 text-xs break-words">{supplier?.name}</div>
+                          </TableCell>
                           <TableCell>
                             <div className="text-xs space-y-1.5">
                               {order.items.map((item, idx) => {
@@ -1197,10 +1199,10 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                                     )}
                                   </div>
                                 </TableCell>
-                                <TableCell className={`font-mono font-bold text-xs transition-colors ${isFilled ? 'text-emerald-400' : 'text-cyan-500'}`}>
+                                <TableCell className={`font-mono font-bold text-xs transition-colors py-2 px-3 ${isFilled ? 'text-emerald-400' : 'text-cyan-500'}`}>
                                   {product?.code}
                                 </TableCell>
-                                <TableCell className={`font-bold transition-colors ${isFilled ? 'text-emerald-300' : 'text-slate-200'}`}>
+                                <TableCell className={`font-bold text-xs break-words transition-colors py-2 px-3 ${isFilled ? 'text-emerald-300' : 'text-slate-200'}`}>
                                   {product?.name}
                                 </TableCell>
                                 <TableCell className="text-center text-slate-400 font-semibold text-xs uppercase">

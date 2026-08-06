@@ -5,15 +5,13 @@ import { getSupabase } from '../lib/supabase';
 
 export function toValidUUID(id: string): string {
   if (!id) {
-    return typeof crypto !== 'undefined' && crypto.randomUUID 
-      ? crypto.randomUUID() 
-      : '10000000-1000-4000-8000-100000000000';
+    return '10000000-1000-4000-8000-100000000000';
   }
 
   // Check if string is already a valid UUID
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   if (uuidRegex.test(id)) {
-    return id;
+    return id.toLowerCase();
   }
 
   // Default mappings for standard mock IDs
@@ -26,15 +24,20 @@ export function toValidUUID(id: string): string {
     return `00000000-0000-0000-0000-${id.padStart(12, '0')}`;
   }
 
-  // Generate fallback UUID
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-    return crypto.randomUUID();
+  // Deterministic UUID algorithm based on string hashing
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = (hash << 5) - hash + id.charCodeAt(i);
+    hash |= 0;
   }
+  let strHex = '';
+  for (let i = 0; i < id.length; i++) {
+    strHex += id.charCodeAt(i).toString(16);
+  }
+  const hex = Math.abs(hash).toString(16).padStart(8, '0');
+  strHex = (strHex + hex + '00000000000000000000000000000000').slice(0, 32);
 
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-    const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
-    return v.toString(16);
-  });
+  return `${strHex.slice(0,8)}-${strHex.slice(8,12)}-4${strHex.slice(13,16)}-8${strHex.slice(17,20)}-${strHex.slice(20,32)}`;
 }
 
 export function useRamox() {
@@ -49,11 +52,11 @@ export function useRamox() {
 
       try {
         const [
-          { data: dbBranches },
-          { data: dbSuppliers },
-          { data: dbProducts },
+          { data: dbBranches, error: errBranches },
+          { data: dbSuppliers, error: errSuppliers },
+          { data: dbProducts, error: errProducts },
           { data: dbUsers, error: errUsers },
-          { data: dbBranchOrders }
+          { data: dbBranchOrders, error: errOrders }
         ] = await Promise.all([
           client.from('branches').select('*'),
           client.from('suppliers').select('*'),
@@ -66,7 +69,8 @@ export function useRamox() {
 
         setState(prev => {
           let updated = { ...prev };
-          if (dbBranches && dbBranches.length > 0) {
+
+          if (!errBranches && Array.isArray(dbBranches)) {
             updated.branches = dbBranches.map((b: any) => ({
               id: b.id,
               name: b.name,
@@ -74,7 +78,8 @@ export function useRamox() {
               manager: b.manager || ''
             }));
           }
-          if (dbSuppliers && dbSuppliers.length > 0) {
+
+          if (!errSuppliers && Array.isArray(dbSuppliers)) {
             updated.suppliers = dbSuppliers.map((s: any) => ({
               id: s.id,
               name: s.name,
@@ -83,7 +88,8 @@ export function useRamox() {
               contact: s.contact || ''
             }));
           }
-          if (dbProducts && dbProducts.length > 0) {
+
+          if (!errProducts && Array.isArray(dbProducts)) {
             updated.products = dbProducts.map((p: any) => ({
               id: p.id,
               name: p.name,
@@ -91,38 +97,46 @@ export function useRamox() {
               category: p.category,
               unit: p.unit,
               price: Number(p.price) || 0,
-              currentStock: p.current_stock || 0,
-              minStock: p.minStock || 0,
+              currentStock: p.current_stock ?? p.currentStock ?? 0,
+              minStock: p.min_stock ?? p.minStock ?? 0,
               image: p.image || ''
             }));
           }
 
-          // MERGE users: preserve locally created users that are not yet in Supabase
-          if (dbUsers && dbUsers.length > 0) {
-            const fetchedUsers = dbUsers.map((u: any) => ({
-              id: u.id,
-              name: u.name,
-              email: u.email,
-              role: u.role,
-              branchId: u.branch_id || undefined
-            }));
+          if (!errUsers && Array.isArray(dbUsers)) {
+            const fetchedUsers = dbUsers
+              .filter((u: any) => u && u.id)
+              .map((u: any) => ({
+                id: u.id,
+                name: u.name || 'Usuário',
+                email: u.email || '',
+                role: u.role || 'branch',
+                password: u.password || '123',
+                branchId: u.branch_id || undefined
+              }));
 
-            const existingEmails = new Set(fetchedUsers.map((u: any) => u.email.toLowerCase().trim()));
-            const localOnlyUsers = prev.users.filter(u => !existingEmails.has(u.email.toLowerCase().trim()));
+            const existingEmails = new Set(
+              fetchedUsers
+                .filter((u: any) => u.email)
+                .map((u: any) => u.email.toLowerCase().trim())
+            );
+            const localOnlyUsers = prev.users.filter(
+              u => u && u.email && !existingEmails.has(u.email.toLowerCase().trim())
+            );
 
             updated.users = [...fetchedUsers, ...localOnlyUsers];
           }
 
-          if (dbBranchOrders && dbBranchOrders.length > 0) {
+          if (!errOrders && Array.isArray(dbBranchOrders)) {
             updated.branchOrders = dbBranchOrders.map((o: any) => ({
               id: o.id,
-              branchId: o.branch_id,
+              branchId: o.branch_id || o.branchId,
               status: o.status,
-              totalValue: Number(o.total_value) || 0,
+              totalValue: Number(o.total_value ?? o.totalValue) || 0,
               items: o.items || [],
-              createdAt: o.created_at,
-              approvedBy: o.approved_by || undefined,
-              approvedAt: o.approved_at || undefined
+              createdAt: o.created_at || o.createdAt,
+              approvedBy: o.approved_by || o.approvedBy || undefined,
+              approvedAt: o.approved_at || o.approvedAt || undefined
             }));
           }
           return updated;
@@ -220,7 +234,9 @@ export function useRamox() {
   }, [state]);
 
   const login = (email: string, password?: string) => {
-    const user = state.users.find(u => u.email.toLowerCase().trim() === email.toLowerCase().trim());
+    if (!email) return false;
+    const cleanEmail = email.toLowerCase().trim();
+    const user = state.users.find(u => u && u.email && u.email.toLowerCase().trim() === cleanEmail);
     if (user) {
       if (user.password && password !== undefined && user.password !== password) {
         return false;

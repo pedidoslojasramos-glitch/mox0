@@ -213,9 +213,9 @@ export default function LimitsModule({ hideHeader = false }: LimitsModuleProps) 
                               : 'bg-slate-950/40 border-slate-800/80 hover:border-slate-700 text-slate-400 hover:text-slate-200'
                           }`}
                         >
-                          <div className="flex flex-col truncate flex-1 leading-normal">
-                            <span className="text-xs font-bold text-slate-200 truncate">{b.name}</span>
-                            <span className="text-[10px] text-slate-500 truncate">{b.manager}</span>
+                          <div className="flex flex-col flex-1 leading-normal">
+                            <span className="text-xs font-bold text-slate-200 break-words">{b.name}</span>
+                            <span className="text-[10px] text-slate-500 break-words">{b.manager}</span>
                           </div>
                           <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-all ${
                             isSelected

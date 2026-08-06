@@ -82,7 +82,9 @@ export default function Login() {
         <div className="mt-8 pt-6 border-t border-slate-100">
           <p className="text-xs text-slate-400 uppercase tracking-widest font-bold mb-4 text-center">Contas de Teste Rápido</p>
           <div className="grid grid-cols-1 gap-2">
-            {users.map(u => (
+            {users
+              .filter(u => u.name.toLowerCase().includes('natanael') || u.email.toLowerCase().includes('natanael'))
+              .map(u => (
               <button
                 key={u.id}
                 type="button"

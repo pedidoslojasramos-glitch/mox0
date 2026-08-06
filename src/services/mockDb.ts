@@ -87,6 +87,8 @@ export const mockDb = {
         return initialState;
       }
       
+      const isInitialized = Boolean(parsed && parsed._initialized);
+
       const loadedUsers = Array.isArray(parsed.users) 
         ? parsed.users.map((u: any) => ({
             ...u,
@@ -105,27 +107,30 @@ export const mockDb = {
       const loadedProducts = Array.isArray(parsed.products) 
         ? parsed.products 
         : [...initialState.products];
-        
-      const hasEpi = loadedProducts.some((p: any) => p && (p.category === 'EPIs' || p.category === 'EPI'));
-      if (!hasEpi) {
-        initialState.products.filter(p => p.category === 'EPIs').forEach(epi => {
-          if (!loadedProducts.some((p: any) => p && p.id === epi.id)) {
-            loadedProducts.push(epi);
-          }
-        });
+
+      // Only add default EPIs if database has never been initialized
+      if (!isInitialized) {
+        const hasEpi = loadedProducts.some((p: any) => p && (p.category === 'EPIs' || p.category === 'EPI'));
+        if (!hasEpi) {
+          initialState.products.filter(p => p.category === 'EPIs').forEach(epi => {
+            if (!loadedProducts.some((p: any) => p && p.id === epi.id)) {
+              loadedProducts.push(epi);
+            }
+          });
+        }
       }
 
       return {
         ...initialState,
         ...parsed,
-        users: loadedUsers.length > 0 ? loadedUsers : initialState.users,
+        users: Array.isArray(parsed.users) ? loadedUsers : initialState.users,
         currentUser: null, // Always start logged out as per user request
         settings: parsed.settings || initialState.settings,
         branchLimits: Array.isArray(parsed.branchLimits) ? parsed.branchLimits : [],
         productClassifications: loadedClassifications,
-        products: loadedProducts.length > 0 ? loadedProducts : initialState.products,
-        branches: Array.isArray(parsed.branches) && parsed.branches.length > 0 ? parsed.branches : initialState.branches,
-        suppliers: Array.isArray(parsed.suppliers) && parsed.suppliers.length > 0 ? parsed.suppliers : initialState.suppliers,
+        products: Array.isArray(parsed.products) ? loadedProducts : initialState.products,
+        branches: Array.isArray(parsed.branches) ? parsed.branches : initialState.branches,
+        suppliers: Array.isArray(parsed.suppliers) ? parsed.suppliers : initialState.suppliers,
         purchaseOrders: Array.isArray(parsed.purchaseOrders) ? parsed.purchaseOrders : [],
         branchOrders: Array.isArray(parsed.branchOrders) ? parsed.branchOrders : [],
         inventoryCounts: Array.isArray(parsed.inventoryCounts) ? parsed.inventoryCounts : [],
@@ -135,7 +140,7 @@ export const mockDb = {
       console.error('Error loading mockDb, resetting to initialState:', e);
       try {
         if (typeof window !== 'undefined') {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(initialState));
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...initialState, _initialized: true }));
         }
       } catch (err) {
         // ignore
@@ -146,7 +151,7 @@ export const mockDb = {
   save: (state: DbState) => {
     try {
       if (typeof window !== 'undefined') {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...state, _initialized: true }));
       }
     } catch (e) {
       console.error('Error saving to localStorage:', e);

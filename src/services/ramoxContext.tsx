@@ -692,6 +692,66 @@ export function useRamox() {
     setState(prev => ({ ...prev, users: [...prev.users, ...createdUsers] }));
   };
 
+  const updateUser = (id: string, updatedFields: Partial<Omit<User, 'id'>>) => {
+    setState(prev => {
+      const updatedUsers = prev.users.map(u => {
+        if (u.id === id) {
+          return { ...u, ...updatedFields };
+        }
+        return u;
+      });
+
+      let updatedCurrentUser = prev.currentUser;
+      if (prev.currentUser && prev.currentUser.id === id) {
+        updatedCurrentUser = { ...prev.currentUser, ...updatedFields };
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('ramox_session_v1', JSON.stringify({
+            user: updatedCurrentUser,
+            lastActivity: Date.now()
+          }));
+        }
+      }
+
+      const updatedState = {
+        ...prev,
+        users: updatedUsers,
+        currentUser: updatedCurrentUser
+      };
+      mockDb.save(updatedState);
+      return updatedState;
+    });
+
+    const client = getSupabase();
+    if (client) {
+      (async () => {
+        try {
+          const targetId = toValidUUID(id);
+          const userToUpdate = state.users.find(u => u.id === id);
+          if (userToUpdate) {
+            const newName = updatedFields.name ?? userToUpdate.name;
+            const newEmail = updatedFields.email ?? userToUpdate.email;
+            const newRole = updatedFields.role ?? userToUpdate.role;
+            const newPassword = updatedFields.password ?? userToUpdate.password ?? '123';
+            const newBranchId = updatedFields.branchId !== undefined ? updatedFields.branchId : userToUpdate.branchId;
+
+            const payload = {
+              id: targetId,
+              name: newName,
+              email: newEmail,
+              role: newRole,
+              password: newPassword,
+              branch_id: newBranchId ? toValidUUID(newBranchId) : null
+            };
+
+            await client.from('users').upsert(payload, { onConflict: 'email' });
+          }
+        } catch (e) {
+          console.warn('Supabase update user err:', e);
+        }
+      })();
+    }
+  };
+
   const deleteUser = (id: string) => {
     const targetUser = state.users.find(u => u.id === id || u.email === id || u.name === id);
     const targetId = toValidUUID(id);
@@ -991,6 +1051,7 @@ export function useRamox() {
     deleteBranchOrder,
     addUser,
     bulkAddUsers,
+    updateUser,
     deleteUser,
     addBranch,
     bulkAddBranches,

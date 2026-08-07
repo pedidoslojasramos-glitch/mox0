@@ -1979,3 +1979,214 @@ export function generateDistributionReceiptPDF(
 
   doc.save(fileName);
 }
+
+/**
+ * FOLHA DE SEPARAÇÃO MANUAL (PICKING)
+ * Formato compacto com Checkpoint [  ] por produto, nome da cidade em destaque e densidade para vários itens.
+ */
+export function generateManualPickingPDF(
+  orderInput: BranchOrder | BranchOrder[],
+  branchInput: Branch | undefined,
+  products: Product[],
+  approverName: string,
+  companyLogo?: string,
+  cityNameOverride?: string
+) {
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4'
+  });
+
+  const orders = Array.isArray(orderInput) ? orderInput : [orderInput];
+  const firstOrder = orders[0];
+
+  const cityRaw = cityNameOverride || branchInput?.location || firstOrder?.branchId || 'N/A';
+  const city = cityRaw.split('-')[0].trim() || cityRaw;
+  const fullLocation = branchInput?.location || cityRaw;
+
+  const orderIdText = orders.length === 1 
+    ? `#${firstOrder.id.toUpperCase()}` 
+    : `LOTE DE ${orders.length} PEDIDOS`;
+
+  addHeaderWithLogo(
+    doc,
+    'FOLHA DE SEPARAÇÃO MANUAL (PICKING)',
+    'Conferência Física de Estoque e Seleção de Itens no Galpão/CD',
+    orderIdText,
+    companyLogo,
+    `CIDADE: ${city.toUpperCase()}`
+  );
+
+  // Compact Header / Info Card (height 22mm for high item capacity)
+  const cardY = 41;
+  const cardHeight = 22;
+
+  // Outer Card Background
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(203, 213, 225);
+  doc.setLineWidth(0.4);
+  doc.roundedRect(12, cardY, 186, cardHeight, 1.5, 1.5, 'FD');
+
+  // Highlight Box for City and Branch Destination (Warm Amber Box)
+  doc.setFillColor(254, 243, 199);
+  doc.setDrawColor(245, 158, 11);
+  doc.setLineWidth(0.6);
+  doc.roundedRect(14, cardY + 2, 85, cardHeight - 4, 1, 1, 'FD');
+
+  doc.setFont('Helvetica', 'bold');
+  doc.setFontSize(7.5);
+  doc.setTextColor(180, 83, 9);
+  doc.text('CIDADE / MUNICÍPIO DESTINO:', 17, cardY + 6.5);
+
+  doc.setFontSize(10);
+  doc.setTextColor(15, 23, 42);
+  doc.text(`${city.toUpperCase()}`, 17, cardY + 11.5);
+
+  const branchLabel = branchInput?.name 
+    ? `FILIAL: ${branchInput.name.toUpperCase()} (${fullLocation})`
+    : `DESTINO: ${fullLocation}`;
+
+  doc.setFontSize(7);
+  doc.setFont('Helvetica', 'normal');
+  doc.setTextColor(100, 116, 139);
+  doc.text(branchLabel, 17, cardY + 16.5, { maxWidth: 80 });
+
+  // Right Side Info
+  const rightX = 104;
+  doc.setFont('Helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.setTextColor(15, 23, 42);
+  doc.text(`SOLICITAÇÃO: ${orderIdText}`, rightX, cardY + 6.5);
+
+  const orderDate = firstOrder?.createdAt 
+    ? new Date(firstOrder.createdAt).toLocaleString('pt-BR') 
+    : new Date().toLocaleString('pt-BR');
+
+  doc.setFont('Helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(71, 85, 105);
+  doc.text(`Data Solicitação: ${orderDate}`, rightX, cardY + 11.5);
+
+  const approver = firstOrder?.approvedBy || approverName || 'Administrador Central';
+  doc.text(`Aprovado Por: ${approver}`, rightX, cardY + 16.5);
+
+  // Aggregate items from orders
+  const itemMap = new Map<string, number>();
+  let totalPieces = 0;
+
+  orders.forEach(ord => {
+    if (ord && ord.items) {
+      ord.items.forEach(it => {
+        const current = itemMap.get(it.productId) || 0;
+        itemMap.set(it.productId, current + it.quantity);
+        totalPieces += it.quantity;
+      });
+    }
+  });
+
+  doc.setFont('Helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.setTextColor(15, 23, 42);
+  doc.text(`Total Peças: ${totalPieces} un | Variedade: ${itemMap.size} item(ns)`, 150, cardY + 6.5);
+
+  // Build Table Rows with CHECKPOINT column first
+  const tableData: any[][] = [];
+  let seq = 1;
+
+  itemMap.forEach((qty, productId) => {
+    const product = products.find(p => p.id === productId);
+    const code = product?.code || 'N/A';
+    const name = product?.name || 'Produto Não Encontrado';
+    const category = product?.category || 'Geral';
+    const unit = product?.unit || 'un';
+
+    tableData.push([
+      '[   ]', // Checkpoint column
+      seq++,
+      code,
+      name,
+      category,
+      unit,
+      qty,
+      '[ _______ ]'
+    ]);
+  });
+
+  // Render Compact AutoTable
+  autoTable(doc, {
+    startY: cardY + cardHeight + 3,
+    margin: { top: 41, bottom: 18, left: 12, right: 12 },
+    head: [['CHECK', 'Nº', 'Código', 'Descrição do Produto', 'Categoria', 'Un', 'Qtd Pedida', 'Conferido']],
+    body: tableData,
+    theme: 'grid',
+    styles: {
+      cellPadding: 1.5, // Ultra-compact row spacing so many products fit on 1 sheet
+      fontSize: 8,
+      textColor: [15, 23, 42],
+      lineColor: [226, 232, 240],
+      lineWidth: 0.2
+    },
+    headStyles: {
+      fillColor: [30, 41, 59], // Dark slate header
+      textColor: [255, 255, 255],
+      fontSize: 8,
+      fontStyle: 'bold',
+      halign: 'left',
+      cellPadding: 2
+    },
+    bodyStyles: {
+      valign: 'middle'
+    },
+    columnStyles: {
+      0: { cellWidth: 14, halign: 'center', fontStyle: 'bold', textColor: [217, 119, 6] }, // [   ] Checkpoint
+      1: { cellWidth: 10, halign: 'center', textColor: [100, 116, 139] },
+      2: { cellWidth: 26, fontStyle: 'bold' },
+      3: { cellWidth: 'auto', fontStyle: 'bold' },
+      4: { cellWidth: 28 },
+      5: { cellWidth: 12, halign: 'center' },
+      6: { cellWidth: 22, fontStyle: 'bold', halign: 'center' },
+      7: { cellWidth: 24, halign: 'center', textColor: [100, 116, 139] }
+    },
+  });
+
+  let finalY = (doc as any).lastAutoTable.finalY + 4;
+
+  if (finalY > 260) {
+    doc.addPage();
+    finalY = 41;
+  }
+
+  // Footer Conference Box
+  doc.setDrawColor(203, 213, 225);
+  doc.setLineWidth(0.3);
+  doc.setFillColor(248, 250, 252);
+  doc.roundedRect(12, finalY, 186, 16, 1, 1, 'FD');
+
+  doc.setFont('Helvetica', 'bold');
+  doc.setFontSize(7.5);
+  doc.setTextColor(30, 41, 59);
+  doc.text('CONFERÊNCIA DE SEPARAÇÃO NO ESTOQUE (ALMOXARIFADO / CD):', 15, finalY + 5);
+
+  doc.setFont('Helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.setTextColor(100, 116, 139);
+  doc.text('Separado Por: ___________________________________   Visto Conferência: ________________________   Data: ____/____/2026', 15, finalY + 11);
+
+  applyBrandHeaderFooterToAllPages(
+    doc,
+    'FOLHA DE SEPARAÇÃO MANUAL (PICKING)',
+    'Conferência Física de Estoque no Galpão',
+    orderIdText,
+    companyLogo,
+    `CIDADE: ${city.toUpperCase()}`,
+    '* Documento de Separação Interna CD • Lojas Ramos.'
+  );
+
+  const cleanCity = city.toLowerCase().replace(/[^a-z0-9]/g, '_');
+  const filename = orders.length === 1 
+    ? `separacao_manual_${firstOrder.id.toLowerCase()}_${cleanCity}.pdf`
+    : `separacao_lote_${cleanCity}.pdf`;
+
+  doc.save(filename);
+}

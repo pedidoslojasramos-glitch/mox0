@@ -4,6 +4,7 @@ import { mockDb } from '../services/mockDb';
 import ExportExcelModal from '../components/ExportExcelModal';
 import ImportExcelModal from '../components/ImportExcelModal';
 import { SearchableSelect } from '../components/SearchableSelect';
+import { User } from '../types';
 import { 
   Settings as SettingsIcon, 
   UserPlus, 
@@ -20,8 +21,17 @@ import {
   CheckCircle2,
   AlertTriangle,
   Copy,
-  Terminal
+  Terminal,
+  Pencil
 } from 'lucide-react';
+import { 
+  Dialog, 
+  DialogContent, 
+  DialogHeader, 
+  DialogTitle, 
+  DialogDescription, 
+  DialogFooter 
+} from '@/components/ui/dialog';
 import { 
   getSupabaseConfig, 
   saveSupabaseConfig, 
@@ -57,6 +67,7 @@ export default function SettingsModule() {
   const { 
     users, 
     addUser, 
+    updateUser,
     deleteUser,
     settings, 
     updateSettings, 
@@ -308,6 +319,48 @@ DO $$ BEGIN CREATE POLICY "Allow public read-write for branch_orders" ON public.
     role: 'branch' as any,
     branchId: ''
   });
+
+  // User editing state
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [isEditUserOpen, setIsEditUserOpen] = useState(false);
+  const [editUserData, setEditUserData] = useState({
+    name: '',
+    email: '',
+    password: '',
+    role: 'branch' as any,
+    branchId: ''
+  });
+
+  const handleOpenEditUser = (u: User) => {
+    setEditingUser(u);
+    setEditUserData({
+      name: u.name,
+      email: u.email,
+      password: u.password || '',
+      role: u.role,
+      branchId: u.branchId || ''
+    });
+    setIsEditUserOpen(true);
+  };
+
+  const handleSaveEditUser = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUser) return;
+    if (!editUserData.name || !editUserData.email) {
+      toast.error('Preencha os campos obrigatórios');
+      return;
+    }
+    updateUser(editingUser.id, {
+      name: editUserData.name,
+      email: editUserData.email,
+      password: editUserData.password || '123456',
+      role: editUserData.role,
+      branchId: editUserData.role === 'branch' ? editUserData.branchId : ''
+    });
+    setIsEditUserOpen(false);
+    setEditingUser(null);
+    toast.success('Usuário atualizado com sucesso!');
+  };
 
   // Branch creation state
   const [newBranch, setNewBranch] = useState({
@@ -679,17 +732,29 @@ DO $$ BEGIN CREATE POLICY "Allow public read-write for branch_orders" ON public.
                             )}
                           </TableCell>
                           <TableCell className="text-right whitespace-nowrap py-2.5 px-3">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 h-8 w-8"
-                              onClick={() => {
-                                deleteUser(u.id);
-                                toast.success(`Usuário "${u.name}" excluído com sucesso.`);
-                              }}
-                            >
-                              <Trash2 size={15} />
-                            </Button>
+                            <div className="flex items-center justify-end gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="text-slate-400 hover:text-brand-600 hover:bg-brand-50 h-8 w-8"
+                                onClick={() => handleOpenEditUser(u)}
+                                title="Editar Usuário"
+                              >
+                                <Pencil size={15} />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 h-8 w-8"
+                                onClick={() => {
+                                  deleteUser(u.id);
+                                  toast.success(`Usuário "${u.name}" excluído com sucesso.`);
+                                }}
+                                title="Excluir Usuário"
+                              >
+                                <Trash2 size={15} />
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -706,6 +771,102 @@ DO $$ BEGIN CREATE POLICY "Allow public read-write for branch_orders" ON public.
               </CardContent>
             </Card>
           </div>
+
+          <Dialog open={isEditUserOpen} onOpenChange={setIsEditUserOpen}>
+            <DialogContent className="max-w-md bg-white">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2 text-slate-900 font-bold">
+                  <Pencil size={18} className="text-brand-600" />
+                  Editar Usuário
+                </DialogTitle>
+                <DialogDescription>
+                  Altere os dados de cadastro e permissões do usuário selecionado.
+                </DialogDescription>
+              </DialogHeader>
+
+              <form onSubmit={handleSaveEditUser} className="space-y-4 py-2">
+                <div className="space-y-2">
+                  <Label className="text-slate-700">Nome Completo</Label>
+                  <Input 
+                    value={editUserData.name} 
+                    onChange={e => setEditUserData({...editUserData, name: e.target.value})} 
+                    placeholder="Ex: Carlos Oliveira"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-slate-700">E-mail (Login)</Label>
+                  <Input 
+                    type="email"
+                    value={editUserData.email} 
+                    onChange={e => setEditUserData({...editUserData, email: e.target.value})} 
+                    placeholder="carlos@empresa.com"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-slate-700">Senha de Acesso</Label>
+                  <Input 
+                    type="text"
+                    value={editUserData.password} 
+                    onChange={e => setEditUserData({...editUserData, password: e.target.value})} 
+                    placeholder="Ex: 123456"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-slate-700">Nível de Acesso</Label>
+                  <Select 
+                    value={editUserData.role} 
+                    onValueChange={v => setEditUserData({...editUserData, role: v as any})}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="admin">Administrador</SelectItem>
+                      <SelectItem value="logistics">Logística</SelectItem>
+                      <SelectItem value="branch">Gerente de Filial</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                {editUserData.role === 'branch' && (
+                  <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
+                    <Label className="text-slate-700">Vincular à Filial</Label>
+                    <SearchableSelect
+                      value={editUserData.branchId}
+                      onChange={v => setEditUserData({...editUserData, branchId: v})}
+                      placeholder="Selecione a filial..."
+                      searchPlaceholder="Digite nome ou código da filial..."
+                      options={branches.map(b => ({
+                        value: b.id,
+                        label: b.name,
+                        code: b.code,
+                        sublabel: b.location
+                      }))}
+                    />
+                  </div>
+                )}
+
+                <DialogFooter className="pt-4 flex gap-2 justify-end">
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    onClick={() => setIsEditUserOpen(false)}
+                  >
+                    Cancelar
+                  </Button>
+                  <Button 
+                    type="submit" 
+                    className="bg-brand-600 hover:bg-brand-700 text-white"
+                  >
+                    Salvar Alterações
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
         </TabsContent>
 
         <TabsContent value="branches">

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useRamoxContext } from '../services/RamoxContextComponent';
 import ExportExcelModal from '../components/ExportExcelModal';
 import Pagination from '../components/Pagination';
-import { generateRomaneioPDF, generateBoxLabelPDF } from '../utils/pdfGenerator';
+import { generateRomaneioPDF, generateBoxLabelPDF, generateManualPickingPDF } from '../utils/pdfGenerator';
 import { 
   Dialog, 
   DialogContent, 
@@ -27,7 +27,10 @@ import {
   Printer,
   FileText,
   List,
-  LayoutGrid
+  LayoutGrid,
+  XCircle,
+  X,
+  RotateCcw
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -70,6 +73,7 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
   const [labelOrderPrompt, setLabelOrderPrompt] = useState<any>(null);
   const [labelCount, setLabelCount] = useState<number>(1);
   const [readyViewMode, setReadyViewMode] = useState<'list' | 'grid'>('list');
+  const [selectedPickingOrderIds, setSelectedPickingOrderIds] = useState<string[]>([]);
 
   const handlePrintRomaneioPDF = (order: any) => {
     const branch = branches.find(b => b.id === order.branchId);
@@ -97,7 +101,7 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
 
   const handleManualPickingPDF = (order: any, openModal: boolean = true) => {
     const branch = branches.find(b => b.id === order.branchId);
-    generateRomaneioPDF(
+    generateManualPickingPDF(
       order,
       branch,
       products,
@@ -107,7 +111,7 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
     if (order.status === 'approved') {
       updateBranchOrderStatus(order.id, 'picking');
     }
-    toast.success(`Separação manual iniciada! PDF do Pedido #${order.id.toUpperCase()} emitido.`);
+    toast.success(`Folha de Separação Manual (Picking) emitida para o Pedido #${order.id.toUpperCase()}!`);
     if (openModal) {
       setPickedQuantities({});
       setSelectedPickingOrder(order);
@@ -215,6 +219,66 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
   const paginatedIncomingPurchases = incomingPurchases.slice((currentIncomingPage - 1) * 15, currentIncomingPage * 15);
   const paginatedPendingCounts = pendingCounts.slice((currentCountsPage - 1) * 15, currentCountsPage * 15);
 
+  const handleToggleSelectAllPicking = () => {
+    if (paginatedPickingOrders.length === 0) return;
+    const allPaginatedSelected = paginatedPickingOrders.every(o => selectedPickingOrderIds.includes(o.id));
+    if (allPaginatedSelected) {
+      setSelectedPickingOrderIds(prev => prev.filter(id => !paginatedPickingOrders.some(p => p.id === id)));
+    } else {
+      const idsToAdd = paginatedPickingOrders.map(o => o.id);
+      setSelectedPickingOrderIds(prev => Array.from(new Set([...prev, ...idsToAdd])));
+    }
+  };
+
+  const handleToggleSelectPicking = (orderId: string) => {
+    setSelectedPickingOrderIds(prev => 
+      prev.includes(orderId) 
+        ? prev.filter(id => id !== orderId) 
+        : [...prev, orderId]
+    );
+  };
+
+  const handleCancelSinglePicking = (order: any) => {
+    updateBranchOrderStatus(order.id, 'pending');
+    toast.info(`Separação do Pedido #${order.id.toUpperCase()} cancelada. O pedido retornou para o status Pendente.`);
+  };
+
+  const handleBatchCancelPicking = () => {
+    if (selectedPickingOrderIds.length === 0) return;
+    const count = selectedPickingOrderIds.length;
+    selectedPickingOrderIds.forEach(id => {
+      updateBranchOrderStatus(id, 'pending');
+    });
+    toast.info(`${count} separação(ões) cancelada(s). Os pedidos retornaram ao status Pendente.`);
+    setSelectedPickingOrderIds([]);
+  };
+
+  const handleBatchConfirmPicking = () => {
+    if (selectedPickingOrderIds.length === 0) return;
+    const count = selectedPickingOrderIds.length;
+    selectedPickingOrderIds.forEach(id => {
+      updateBranchOrderStatus(id, 'picked');
+    });
+    toast.success(`${count} separação(ões) confirmada(s) com sucesso!`);
+    setSelectedPickingOrderIds([]);
+  };
+
+  const handleBatchPrintPickingPDF = () => {
+    if (selectedPickingOrderIds.length === 0) return;
+    const selectedOrders = branchOrders.filter(o => selectedPickingOrderIds.includes(o.id));
+    if (selectedOrders.length === 0) return;
+
+    const firstBranch = branches.find(b => b.id === selectedOrders[0].branchId);
+    generateManualPickingPDF(
+      selectedOrders,
+      firstBranch,
+      products,
+      'Administrador Central',
+      settings?.companyLogo
+    );
+    toast.success(`Folha de Separação Manual em Lote (${selectedOrders.length} pedidos) emitida com Checkpoints!`);
+  };
+
   // Group approved orders by city
   const ordersByCity = pickingCitiesOrders.reduce((acc, order) => {
     const branch = branches.find(b => b.id === order.branchId);
@@ -321,11 +385,75 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
               />
             </CardHeader>
             <CardContent className="p-0">
+              {selectedPickingOrderIds.length > 0 && (
+                <div className="bg-amber-950/40 border-b border-amber-800/50 p-4 flex flex-wrap items-center justify-between gap-3 animate-in fade-in slide-in-from-top-1">
+                  <div className="flex items-center gap-3">
+                    <Badge className="bg-amber-500 text-slate-950 font-black px-2.5 py-1 text-xs">
+                      {selectedPickingOrderIds.length} selecionado(s)
+                    </Badge>
+                    <span className="text-xs font-semibold text-amber-200">
+                      Ações em lote para separações
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Button
+                      onClick={handleBatchPrintPickingPDF}
+                      variant="outline"
+                      className="bg-amber-950/60 hover:bg-amber-900/80 text-amber-300 border-amber-800/60 font-bold h-8 px-3 text-xs"
+                      title="Imprimir Folha de Separação Manual em Lote com Checkpoints"
+                    >
+                      <Printer size={14} className="mr-1.5 text-amber-400" />
+                      Imprimir Separação ({selectedPickingOrderIds.length})
+                    </Button>
+
+                    <Button
+                      onClick={handleBatchCancelPicking}
+                      variant="outline"
+                      className="bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border-rose-800/60 font-bold h-8 px-3 text-xs"
+                      title="Cancelar separação dos pedidos selecionados e retornar para o status Pendente"
+                    >
+                      <XCircle size={14} className="mr-1.5 text-rose-400" />
+                      Cancelar Separação ({selectedPickingOrderIds.length})
+                    </Button>
+
+                    <Button
+                      onClick={handleBatchConfirmPicking}
+                      className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold h-8 px-3 text-xs border-none"
+                      title="Confirmar separação de todos os pedidos selecionados"
+                    >
+                      <CheckCircle2 size={14} className="mr-1.5" />
+                      Confirmar Separações ({selectedPickingOrderIds.length})
+                    </Button>
+
+                    <Button
+                      onClick={() => setSelectedPickingOrderIds([])}
+                      variant="ghost"
+                      className="text-slate-400 hover:text-white h-8 px-2 text-xs"
+                    >
+                      <X size={14} className="mr-1" /> Desmarcar
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               <div className="w-full overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow className="border-b border-slate-800 hover:bg-transparent">
-                      <TableHead className="text-slate-500 font-bold uppercase text-[10px] tracking-widest pl-6">ID do Pedido</TableHead>
+                      <TableHead className="w-12 pl-6">
+                        <input
+                          type="checkbox"
+                          checked={
+                            paginatedPickingOrders.length > 0 &&
+                            paginatedPickingOrders.every(o => selectedPickingOrderIds.includes(o.id))
+                          }
+                          onChange={handleToggleSelectAllPicking}
+                          className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-amber-500 focus:ring-amber-500 cursor-pointer accent-amber-500"
+                          title="Selecionar todos os pedidos desta página"
+                        />
+                      </TableHead>
+                      <TableHead className="text-slate-500 font-bold uppercase text-[10px] tracking-widest">ID do Pedido</TableHead>
                       <TableHead className="text-slate-500 font-bold uppercase text-[10px] tracking-widest">Filial Destino</TableHead>
                       <TableHead className="text-slate-500 font-bold uppercase text-[10px] tracking-widest">Cidade</TableHead>
                       <TableHead className="text-slate-500 font-bold uppercase text-[10px] tracking-widest text-center">Status</TableHead>
@@ -337,9 +465,23 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                     {paginatedPickingOrders.map(order => {
                       const branch = branches.find(b => b.id === order.branchId);
                       const totalQty = order.items.reduce((sum, item) => sum + item.quantity, 0);
+                      const isSelected = selectedPickingOrderIds.includes(order.id);
                       return (
-                        <TableRow key={order.id} className="group border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors">
-                          <TableCell className="font-mono font-bold text-cyan-400 pl-6">#{order.id.toUpperCase()}</TableCell>
+                        <TableRow 
+                          key={order.id} 
+                          className={`group border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors ${
+                            isSelected ? 'bg-amber-950/20' : ''
+                          }`}
+                        >
+                          <TableCell className="pl-6 w-12 py-4">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => handleToggleSelectPicking(order.id)}
+                              className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-amber-500 focus:ring-amber-500 cursor-pointer accent-amber-500"
+                            />
+                          </TableCell>
+                          <TableCell className="font-mono font-bold text-cyan-400">#{order.id.toUpperCase()}</TableCell>
                           <TableCell className="py-2.5 px-3">
                             <div className="font-bold text-slate-200 text-xs break-words">{branch?.name}</div>
                           </TableCell>
@@ -396,6 +538,16 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                                   <CheckCircle2 size={14} className="mr-1.5" /> Confirmar Separação
                                 </Button>
                               )}
+
+                              {/* Cancelar Separação */}
+                              <Button 
+                                onClick={() => handleCancelSinglePicking(order)}
+                                variant="outline"
+                                className="bg-rose-950/40 hover:bg-rose-900/60 text-rose-400 border-rose-800/50 font-bold h-9 px-3.5 rounded-md transition-all text-xs"
+                                title="Cancelar separação deste pedido e retornar para o status Pendente"
+                              >
+                                <XCircle size={14} className="mr-1.5" /> Cancelar Separação
+                              </Button>
                             </div>
                           </TableCell>
                         </TableRow>
@@ -403,7 +555,7 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                     })}
                     {pickingCitiesOrders.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center py-20 text-slate-500">
+                        <TableCell colSpan={7} className="text-center py-20 text-slate-500">
                           <div className="flex flex-col items-center gap-4">
                             <Box size={48} className="text-slate-700" />
                             <p className="text-lg font-medium">Nenhuma separação pendente.</p>
@@ -1259,14 +1411,26 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                   )}
                 </div>
 
-                <div className="p-4 sm:p-6 bg-slate-900/60 border-t border-slate-800 flex items-center justify-between gap-4">
-                  <Button 
-                    variant="ghost" 
-                    className="text-slate-400 hover:text-white border-none bg-transparent hover:bg-slate-800/30 font-bold"
-                    onClick={() => setSelectedPickingOrder(null)}
-                  >
-                    Voltar depois / Pausar
-                  </Button>
+                <div className="p-4 sm:p-6 bg-slate-900/60 border-t border-slate-800 flex flex-wrap items-center justify-between gap-4">
+                  <div className="flex items-center gap-2">
+                    <Button 
+                      variant="ghost" 
+                      className="text-slate-400 hover:text-white border-none bg-transparent hover:bg-slate-800/30 font-bold text-xs"
+                      onClick={() => setSelectedPickingOrder(null)}
+                    >
+                      Voltar depois / Pausar
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      className="bg-rose-950/40 hover:bg-rose-900/60 text-rose-400 border-rose-800/60 font-bold h-10 px-4 rounded-lg transition-all text-xs"
+                      onClick={() => {
+                        handleCancelSinglePicking(currentOrderAndState);
+                        setSelectedPickingOrder(null);
+                      }}
+                    >
+                      <XCircle size={16} className="mr-1.5" /> Cancelar Separação
+                    </Button>
+                  </div>
                   <Button 
                     className="bg-emerald-500 hover:bg-emerald-400 text-white font-black h-12 px-6 sm:px-8 rounded-lg shadow-lg shadow-emerald-500/20 border-none transition-all"
                     onClick={() => {

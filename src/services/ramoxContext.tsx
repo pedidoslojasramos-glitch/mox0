@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { mockDb, isRecordDeleted } from './mockDb';
 import { Product, Supplier, PurchaseOrder, Branch, BranchOrder, User, UserRole, Distribution, DistributionType, BranchLimits } from '../types';
 import { getSupabase } from '../lib/supabase';
+import { toast } from 'sonner';
 
 export function toValidUUID(id: string): string {
   if (!id) {
@@ -293,6 +294,10 @@ export function useRamox() {
       if (user.password && password !== undefined && user.password !== password) {
         return false;
       }
+      const now = Date.now();
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('ramox_session_v1', JSON.stringify({ user, lastActivity: now }));
+      }
       setState(prev => ({ ...prev, currentUser: user }));
       return true;
     }
@@ -300,8 +305,63 @@ export function useRamox() {
   };
 
   const logout = () => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('ramox_session_v1');
+    }
     setState(prev => ({ ...prev, currentUser: null }));
   };
+
+  // 20-minute inactivity session manager
+  useEffect(() => {
+    if (!state.currentUser) return;
+
+    const INACTIVITY_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes
+    let lastActivity = Date.now();
+
+    const updateActivity = () => {
+      const now = Date.now();
+      if (now - lastActivity > 5000) {
+        lastActivity = now;
+        if (typeof window !== 'undefined' && state.currentUser) {
+          localStorage.setItem('ramox_session_v1', JSON.stringify({
+            user: state.currentUser,
+            lastActivity: now
+          }));
+        }
+      } else {
+        lastActivity = now;
+      }
+    };
+
+    const events = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart', 'focus'];
+    events.forEach(evt => window.addEventListener(evt, updateActivity, { passive: true }));
+
+    const interval = setInterval(() => {
+      const now = Date.now();
+      let latestActivity = lastActivity;
+      try {
+        if (typeof window !== 'undefined') {
+          const raw = localStorage.getItem('ramox_session_v1');
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && parsed.lastActivity) {
+              latestActivity = Math.max(lastActivity, Number(parsed.lastActivity));
+            }
+          }
+        }
+      } catch (e) {}
+
+      if (now - latestActivity >= INACTIVITY_TIMEOUT_MS) {
+        logout();
+        toast.info('Sessão encerrada por inatividade (20 minutos).');
+      }
+    }, 10000);
+
+    return () => {
+      events.forEach(evt => window.removeEventListener(evt, updateActivity));
+      clearInterval(interval);
+    };
+  }, [state.currentUser]);
 
   // Products
   const addProduct = (product: Omit<Product, 'id'>) => {

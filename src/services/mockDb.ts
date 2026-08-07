@@ -1,6 +1,8 @@
 import { Product, Supplier, PurchaseOrder, Branch, BranchOrder, User, UserRole, Distribution, BranchLimits } from '../types';
 
 const STORAGE_KEY = 'ramox_data';
+const SESSION_KEY = 'ramox_session_v1';
+const INACTIVITY_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes in milliseconds
 
 interface InventoryCount {
   id: string;
@@ -154,11 +156,39 @@ export const mockDb = {
       const loadedPurchaseOrders = (Array.isArray(parsed.purchaseOrders) ? parsed.purchaseOrders : [])
         .filter((po: any) => po && !isRecordDeleted(po.id));
 
+      let restoredUser: User | null = null;
+      if (typeof window !== 'undefined') {
+        try {
+          const rawSession = localStorage.getItem(SESSION_KEY);
+          if (rawSession) {
+            const session = JSON.parse(rawSession);
+            if (session && session.user && session.lastActivity) {
+              const now = Date.now();
+              if (now - Number(session.lastActivity) < INACTIVITY_TIMEOUT_MS) {
+                const validUser = loadedUsers.find((u: any) => 
+                  u && (u.id === session.user.id || (u.email && session.user.email && u.email.toLowerCase() === session.user.email.toLowerCase()))
+                );
+                if (validUser) {
+                  restoredUser = validUser;
+                  localStorage.setItem(SESSION_KEY, JSON.stringify({ user: validUser, lastActivity: now }));
+                } else {
+                  localStorage.removeItem(SESSION_KEY);
+                }
+              } else {
+                localStorage.removeItem(SESSION_KEY);
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('Error restoring session:', e);
+        }
+      }
+
       return {
         ...initialState,
         ...parsed,
         users: loadedUsers,
-        currentUser: null, // Always start logged out as per user request
+        currentUser: restoredUser,
         settings: parsed.settings || initialState.settings,
         branchLimits: Array.isArray(parsed.branchLimits) ? parsed.branchLimits : [],
         productClassifications: loadedClassifications,
@@ -194,6 +224,7 @@ export const mockDb = {
   reset: () => {
     try {
       if (typeof window !== 'undefined') {
+        localStorage.removeItem(SESSION_KEY);
         localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...initialState, _initialized: true }));
         window.location.reload();
       }
@@ -204,6 +235,7 @@ export const mockDb = {
   clearCache: () => {
     try {
       if (typeof window !== 'undefined') {
+        localStorage.removeItem(SESSION_KEY);
         localStorage.removeItem(STORAGE_KEY);
         localStorage.removeItem(DELETED_KEY);
         window.location.reload();

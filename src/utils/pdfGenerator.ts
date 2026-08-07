@@ -3,6 +3,64 @@ import autoTable from 'jspdf-autotable';
 import { BranchOrder, Branch, Product, Supplier } from '../types';
 
 /**
+ * Brand colors for Lojas Ramos / RAMOS MÓVEIS E ELETRODOMÉSTICOS
+ */
+export const RAMOS_COLORS = {
+  orange: [243, 112, 33] as [number, number, number], // #F37021 - Laranja Ramos
+  blue: [11, 79, 156] as [number, number, number],    // #0B4F9C - Azul Ramos
+  darkSlate: [15, 23, 42] as [number, number, number], // #0F172A
+  lightBg: [248, 250, 252] as [number, number, number], // #F8FAFC
+  borderSlate: [226, 232, 240] as [number, number, number] // #E2E8F0
+};
+
+/**
+ * Draws the mandatory brand bands stacked vertically (Blue on top, Orange underneath)
+ * running across the full page width at the top (header) and bottom (footer).
+ */
+export function drawBrandBands(doc: jsPDF) {
+  const pw = doc.internal.pageSize.getWidth(); // Standard A4: 210 mm
+  const ph = doc.internal.pageSize.getHeight(); // Standard A4: 297 mm
+
+  // --- HEADER STACKED BANDS (Full width) ---
+  // Top band: Azul Ramos (0 to 210 mm, y = 0 to 8 mm)
+  doc.setFillColor(...RAMOS_COLORS.blue);
+  doc.rect(0, 0, pw, 8, 'F');
+
+  // Second band: Laranja Ramos (0 to 210 mm, y = 8 to 12 mm)
+  doc.setFillColor(...RAMOS_COLORS.orange);
+  doc.rect(0, 8, pw, 4, 'F');
+
+  // --- FOOTER STACKED BANDS (Full width, bottom edge) ---
+  // Upper footer band: Laranja Ramos (0 to 210 mm, y = ph - 12 to ph - 8 mm)
+  doc.setFillColor(...RAMOS_COLORS.orange);
+  doc.rect(0, ph - 12, pw, 4, 'F');
+
+  // Lower footer band: Azul Ramos (0 to 210 mm, y = ph - 8 to ph)
+  doc.setFillColor(...RAMOS_COLORS.blue);
+  doc.rect(0, ph - 8, pw, 8, 'F');
+}
+
+/**
+ * Calculates a fitting font size so that `text` stays within `maxWidth` in jsPDF.
+ */
+export function getFittingFontSize(
+  doc: jsPDF,
+  text: string,
+  maxWidth: number,
+  maxFontSize: number,
+  minFontSize: number = 6
+): number {
+  if (!text) return maxFontSize;
+  doc.setFontSize(maxFontSize);
+  let currentSize = maxFontSize;
+  while (currentSize > minFontSize && doc.getTextWidth(text) > maxWidth) {
+    currentSize -= 0.5;
+    doc.setFontSize(currentSize);
+  }
+  return currentSize;
+}
+
+/**
  * Render a unified, highly-organized corporate header with company logo
  */
 function addHeaderWithLogo(
@@ -13,31 +71,30 @@ function addHeaderWithLogo(
   companyLogo?: string,
   badgeText?: string
 ) {
-  // Top brand color accent line (cyan-600)
-  doc.setFillColor(8, 145, 178);
-  doc.rect(0, 0, 210, 3, 'F');
+  // Draw the 1cm top and bottom brand bands first
+  drawBrandBands(doc);
 
-  // Header background (clean light slate)
-  doc.setFillColor(248, 250, 252);
-  doc.rect(0, 3, 210, 32, 'F');
-  doc.setDrawColor(226, 232, 240);
+  // Header card background (y = 11.5 to 39.5 mm)
+  doc.setFillColor(...RAMOS_COLORS.lightBg);
+  doc.rect(0, 11.5, 210, 28, 'F');
+  doc.setDrawColor(...RAMOS_COLORS.borderSlate);
   doc.setLineWidth(0.4);
-  doc.line(0, 35, 210, 35);
+  doc.line(0, 39.5, 210, 39.5);
 
-  // Logo Container Box (Left Side)
+  // Logo Container Box (Left side)
   doc.setFillColor(255, 255, 255);
   doc.setDrawColor(203, 213, 225); // slate-300
   doc.setLineWidth(0.4);
-  doc.roundedRect(12, 6, 26, 25, 2, 2, 'FD');
+  doc.roundedRect(12, 13.5, 28, 23, 2, 2, 'FD');
 
   let logoDrawn = false;
   if (companyLogo) {
     try {
       let format: 'PNG' | 'JPEG' | 'WEBP' = 'PNG';
       if (companyLogo.includes('image/jpeg') || companyLogo.includes('image/jpg')) format = 'JPEG';
-      if (companyLogo.includes('image/webp')) format = 'WEBP';
+      else if (companyLogo.includes('image/webp')) format = 'WEBP';
 
-      doc.addImage(companyLogo, format, 13, 7, 24, 23);
+      doc.addImage(companyLogo, format, 13, 14.5, 26, 21);
       logoDrawn = true;
     } catch (e) {
       console.warn("Could not render logo in PDF, using vector fallback:", e);
@@ -45,65 +102,111 @@ function addHeaderWithLogo(
   }
 
   if (!logoDrawn) {
-    // Vector Emblem Fallback
-    doc.setFillColor(8, 145, 178);
-    doc.ellipse(25, 18.5, 7, 7, 'F');
-    doc.setDrawColor(14, 116, 144);
-    doc.setLineWidth(0.6);
-    doc.ellipse(25, 18.5, 9, 9, 'S');
+    // Vector Emblem Fallback (RAMOS brand colors)
+    doc.setFillColor(...RAMOS_COLORS.orange);
+    doc.ellipse(26, 25, 7.5, 7.5, 'F');
+    doc.setDrawColor(...RAMOS_COLORS.blue);
+    doc.setLineWidth(0.8);
+    doc.ellipse(26, 25, 9.5, 9.5, 'S');
 
     doc.setTextColor(255, 255, 255);
     doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(13);
-    doc.text('R', 22.3, 22.8);
+    doc.setFontSize(12);
+    doc.text('R', 23.5, 29);
   }
 
-  const startTextX = 42;
+  const startTextX = 43;
 
   // Header Typography
   doc.setTextColor(15, 23, 42); // slate-900
   doc.setFont('Helvetica', 'bold');
-  doc.setFontSize(13);
-  doc.text('RAMOS MÓVEIS E ELETRODOMÉSTICOS', startTextX, 13);
+  doc.setFontSize(11);
+  doc.text('RAMOS MÓVEIS E ELETRODOMÉSTICOS', startTextX, 19, { maxWidth: 102 });
 
-  doc.setFontSize(9.5);
+  let titleFontSize = getFittingFontSize(doc, titleText, 102, 9.5, 7);
+  doc.setFontSize(titleFontSize);
   doc.setFont('Helvetica', 'bold');
-  doc.setTextColor(8, 145, 178); // cyan-600
-  doc.text(titleText, startTextX, 19);
+  doc.setTextColor(...RAMOS_COLORS.orange); // Laranja Ramos
+  doc.text(titleText, startTextX, 24.5, { maxWidth: 102 });
 
-  doc.setFontSize(7.5);
+  let subFontSize = getFittingFontSize(doc, subtitleText, 102, 7.5, 6);
+  doc.setFontSize(subFontSize);
   doc.setFont('Helvetica', 'normal');
   doc.setTextColor(100, 116, 139); // slate-500
-  doc.text(subtitleText, startTextX, 24);
+  doc.text(subtitleText, startTextX, 29.5, { maxWidth: 102 });
 
-  doc.setFontSize(7);
+  doc.setFontSize(6.5);
   doc.setTextColor(148, 163, 184); // slate-400
-  doc.text('Sistema MOX • Controle Logístico Integrado & Operacional', startTextX, 28.5);
+  doc.text('Sistema MOX • Controle Logístico Integrado & Operacional', startTextX, 34, { maxWidth: 102 });
 
   // Right Side Document Number Badge
   doc.setFillColor(15, 23, 42); // slate-900
-  doc.roundedRect(150, 7, 48, 14, 1.5, 1.5, 'F');
+  doc.roundedRect(148, 13.5, 50, 13, 1.5, 1.5, 'F');
 
   doc.setTextColor(255, 255, 255);
   doc.setFont('Helvetica', 'bold');
-  doc.setFontSize(8.5);
-  doc.text(docNumberText, 174, 12.5, { align: 'center' });
+  const docNumFontSize = getFittingFontSize(doc, docNumberText, 46, 8.5, 5.5);
+  doc.setFontSize(docNumFontSize);
+  const splitDocNum = doc.splitTextToSize(docNumberText, 46);
+  if (splitDocNum.length > 1) {
+    doc.text(splitDocNum[0], 173, 17, { align: 'center' });
+    doc.text(splitDocNum[1], 173, 19.5, { align: 'center' });
+  } else {
+    doc.text(docNumberText, 173, 18.5, { align: 'center' });
+  }
 
-  doc.setFontSize(6.5);
+  doc.setFontSize(6);
   doc.setFont('Helvetica', 'normal');
   doc.setTextColor(148, 163, 184);
-  doc.text('DOCUMENTO OFICIAL MOX', 174, 17.5, { align: 'center' });
+  doc.text('DOCUMENTO OFICIAL MOX', 173, 23.5, { align: 'center', maxWidth: 46 });
 
   if (badgeText) {
-    doc.setFillColor(236, 254, 255); // cyan-50
-    doc.setDrawColor(8, 145, 178); // cyan-600
-    doc.setLineWidth(0.3);
-    doc.roundedRect(150, 22, 48, 9, 1, 1, 'FD');
+    doc.setFillColor(254, 243, 199); // amber-100 / warm accent
+    doc.setDrawColor(...RAMOS_COLORS.orange); // Laranja Ramos
+    doc.setLineWidth(0.4);
+    doc.roundedRect(148, 28, 50, 8.5, 1, 1, 'FD');
 
     doc.setFont('Helvetica', 'bold');
+    const badgeFontSize = getFittingFontSize(doc, badgeText, 46, 7.5, 5.5);
+    doc.setFontSize(badgeFontSize);
+    doc.setTextColor(180, 83, 9); // amber-700
+    doc.text(badgeText, 173, 33.5, { align: 'center', maxWidth: 46 });
+  }
+}
+
+/**
+ * Apply brand headers, logo, 1cm orange/blue bands, and dynamic footer page numbers to all pages.
+ */
+function applyBrandHeaderFooterToAllPages(
+  doc: jsPDF,
+  titleText: string,
+  subtitleText: string,
+  docNumberText: string,
+  companyLogo?: string,
+  badgeText?: string,
+  footerNote?: string
+) {
+  const totalPages = doc.getNumberOfPages();
+
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+
+    // Ensure header with logo and top/bottom bands are rendered on every page
+    addHeaderWithLogo(doc, titleText, subtitleText, docNumberText, companyLogo, badgeText);
+
+    // Footer text positioned neatly above the bottom 1cm brand band
+    const footerY = 282; // mm
+    doc.setFont('Helvetica', 'italic');
     doc.setFontSize(7);
-    doc.setTextColor(8, 145, 178);
-    doc.text(badgeText, 174, 28, { align: 'center' });
+    doc.setTextColor(100, 116, 139);
+
+    const note = footerNote || '* Documento oficial gerado via Sistema MOX • Lojas Ramos.';
+    doc.text(note, 12, footerY, { maxWidth: 160 });
+
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`Página ${i} de ${totalPages}`, 198, footerY, { align: 'right' });
   }
 }
 
@@ -134,90 +237,142 @@ export function generateRomaneioPDF(
   );
 
   // Info Cards Section
-  const cardY = 40;
-  const cardHeight = 35;
+  const cardY = 43;
 
+  // 1. Calculate text line splits and fitting font sizes
+  const idFontSize = getFittingFontSize(doc, orderIdText, 50, 8.5, 6);
+  doc.setFontSize(idFontSize);
+  const splitId = doc.splitTextToSize(orderIdText, 50);
+
+  const orderDate = order.createdAt ? new Date(order.createdAt).toLocaleString('pt-BR') : new Date().toLocaleString('pt-BR');
+  const splitDate = doc.splitTextToSize(orderDate, 50);
+
+  const approver = order.approvedBy || approverName || 'Administrador Central';
+  const appFontSize = getFittingFontSize(doc, approver, 50, 8.5, 6.5);
+  doc.setFontSize(appFontSize);
+  const splitApp = doc.splitTextToSize(approver, 50);
+
+  const rightTitle = 'DESTINATÁRIO / FILIAL DESTINO';
+  const rightTitleFontSize = getFittingFontSize(doc, rightTitle, 82, 9.5, 7.5);
+
+  const branchName = (branch?.name || 'Filial não identificada').toUpperCase();
+  const bFontSize = getFittingFontSize(doc, branchName, 82, 10.5, 7.5);
+  doc.setFontSize(bFontSize);
+  const splitBranch = doc.splitTextToSize(branchName, 82);
+
+  const locText = branch?.location || 'Não cadastrada';
+  const locFontSize = getFittingFontSize(doc, locText, 48, 8.5, 6.5);
+  doc.setFontSize(locFontSize);
+  const splitLoc = doc.splitTextToSize(locText, 48);
+
+  const mgrText = branch?.manager || 'Não cadastrado';
+  const mgrFontSize = getFittingFontSize(doc, mgrText, 48, 8.5, 6.5);
+  doc.setFontSize(mgrFontSize);
+  const splitMgr = doc.splitTextToSize(mgrText, 48);
+
+  // Compute total card heights required
+  const leftRequiredH = 13 + (splitId.length * 5) + (splitDate.length * 5) + (splitApp.length * 5) + 6;
+  const rightRequiredH = 13 + (splitBranch.length * 5) + (splitLoc.length * 4.8) + (splitMgr.length * 4.8) + 6;
+  const cardHeight = Math.max(36, leftRequiredH, rightRequiredH);
+
+  // 2. Draw Card Backgrounds FIRST
   // Card Left - Dados da Solicitação
   doc.setFillColor(248, 250, 252);
   doc.setDrawColor(226, 232, 240);
   doc.setLineWidth(0.4);
   doc.roundedRect(12, cardY, 90, cardHeight, 2, 2, 'FD');
 
-  doc.setFont('Helvetica', 'bold');
-  doc.setFontSize(9.5);
-  doc.setTextColor(15, 23, 42);
-  doc.text('DADOS DA SOLICITAÇÃO / ORIGEM', 16, cardY + 6.5);
-
-  doc.setFontSize(9);
-  doc.setFont('Helvetica', 'normal');
-  doc.setTextColor(100, 116, 139);
-  doc.text('Protocolo ID:', 16, cardY + 13);
-  doc.setFont('Helvetica', 'bold');
-  doc.setTextColor(15, 23, 42);
-  doc.text(orderIdText, 48, cardY + 13);
-
-  doc.setFont('Helvetica', 'normal');
-  doc.setTextColor(100, 116, 139);
-  doc.text('Data Solicitação:', 16, cardY + 19);
-  doc.setFont('Helvetica', 'normal');
-  doc.setTextColor(15, 23, 42);
-  const orderDate = order.createdAt ? new Date(order.createdAt).toLocaleString('pt-BR') : new Date().toLocaleString('pt-BR');
-  doc.text(orderDate, 48, cardY + 19);
-
-  doc.setFont('Helvetica', 'normal');
-  doc.setTextColor(100, 116, 139);
-  doc.text('Aprovado Por:', 16, cardY + 25);
-  doc.setFont('Helvetica', 'bold');
-  doc.setTextColor(15, 23, 42);
-  const approver = order.approvedBy || approverName || 'Administrador Central';
-  doc.text(approver, 48, cardY + 25);
-
-  doc.setFont('Helvetica', 'normal');
-  doc.setTextColor(100, 116, 139);
-  doc.text('Origem Carga:', 16, cardY + 31);
-  doc.setFont('Helvetica', 'bold');
-  doc.setTextColor(15, 23, 42);
-  doc.text('Centro de Distribuição Central', 48, cardY + 31);
-
-  // Card Right - DESTINATÁRIO / FILIAL DESTINO (QUADRO AMARELO COM TEXTO PRETO)
-  doc.setFillColor(254, 240, 138); // Background amarelo
-  doc.setDrawColor(234, 179, 8); // Borda amarela destacada
+  // Card Right - DESTINATÁRIO / FILIAL DESTINO
+  doc.setFillColor(254, 240, 138); // Yellow background
+  doc.setDrawColor(234, 179, 8); // Yellow border
   doc.setLineWidth(0.8);
   doc.roundedRect(108, cardY, 90, cardHeight, 2, 2, 'FD');
 
+  // 3. Draw Left Card Text
+  let leftY = cardY + 6.5;
   doc.setFont('Helvetica', 'bold');
-  doc.setFontSize(10.5);
-  doc.setTextColor(0, 0, 0); // Texto preto
-  doc.text('DESTINATÁRIO / FILIAL DESTINO', 112, cardY + 6.5);
-
   doc.setFontSize(9.5);
-  doc.setFont('Helvetica', 'bold');
-  doc.setTextColor(15, 23, 42); // Texto preto
-  doc.text('FILIAL DESTINO:', 112, cardY + 14);
+  doc.setTextColor(15, 23, 42);
+  doc.text('DADOS DA SOLICITAÇÃO / ORIGEM', 16, leftY);
+  leftY += 6.5;
 
-  // PROMINENT BRANCH NAME (Large font size 13pt bold)
-  doc.setFont('Helvetica', 'bold');
-  doc.setFontSize(13);
-  doc.setTextColor(0, 0, 0); // Texto preto em destaque
-  const branchName = branch?.name || 'Filial não identificada';
-  doc.text(branchName.toUpperCase(), 112, cardY + 20);
-
-  doc.setFontSize(9);
+  doc.setFontSize(8.5);
   doc.setFont('Helvetica', 'normal');
-  doc.setTextColor(15, 23, 42); // Texto preto
-  doc.text('Endereço / Local:', 112, cardY + 26);
+  doc.setTextColor(100, 116, 139);
+  doc.text('Protocolo ID:', 16, leftY);
   doc.setFont('Helvetica', 'bold');
-  doc.setTextColor(0, 0, 0); // Texto preto
-  doc.text(branch?.location || 'Não cadastrada', 145, cardY + 26);
+  doc.setTextColor(15, 23, 42);
+  doc.setFontSize(idFontSize);
+  doc.text(splitId, 48, leftY);
+  leftY += Math.max(1, splitId.length) * 5;
 
+  doc.setFontSize(8.5);
   doc.setFont('Helvetica', 'normal');
-  doc.setTextColor(15, 23, 42); // Texto preto
-  doc.text('Gerente Responsável:', 112, cardY + 31);
-  doc.setFont('Helvetica', 'bold');
-  doc.setTextColor(0, 0, 0); // Texto preto
-  doc.text(branch?.manager || 'Não cadastrado', 145, cardY + 31);
+  doc.setTextColor(100, 116, 139);
+  doc.text('Data Solicitação:', 16, leftY);
+  doc.setFont('Helvetica', 'normal');
+  doc.setTextColor(15, 23, 42);
+  doc.text(splitDate, 48, leftY);
+  leftY += Math.max(1, splitDate.length) * 5;
 
-  // Table Data Preparation
+  doc.setFontSize(8.5);
+  doc.setFont('Helvetica', 'normal');
+  doc.setTextColor(100, 116, 139);
+  doc.text('Aprovado Por:', 16, leftY);
+  doc.setFont('Helvetica', 'bold');
+  doc.setTextColor(15, 23, 42);
+  doc.setFontSize(appFontSize);
+  doc.text(splitApp, 48, leftY);
+  leftY += Math.max(1, splitApp.length) * 5;
+
+  doc.setFontSize(8.5);
+  doc.setFont('Helvetica', 'normal');
+  doc.setTextColor(100, 116, 139);
+  doc.text('Origem Carga:', 16, leftY);
+  doc.setFont('Helvetica', 'bold');
+  doc.setTextColor(15, 23, 42);
+  doc.text('Centro de Distribuição Central', 48, leftY, { maxWidth: 50 });
+
+  // 4. Draw Right Card Text
+  let rightY = cardY + 6.5;
+  doc.setFont('Helvetica', 'bold');
+  doc.setFontSize(rightTitleFontSize);
+  doc.setTextColor(0, 0, 0);
+  doc.text(rightTitle, 112, rightY);
+  rightY += 6.5;
+
+  doc.setFontSize(8.5);
+  doc.setFont('Helvetica', 'bold');
+  doc.setTextColor(15, 23, 42);
+  doc.text('FILIAL DESTINO:', 112, rightY);
+  rightY += 4.5;
+
+  doc.setFont('Helvetica', 'bold');
+  doc.setFontSize(bFontSize);
+  doc.setTextColor(0, 0, 0);
+  doc.text(splitBranch, 112, rightY);
+  rightY += Math.max(1, splitBranch.length) * 5;
+
+  doc.setFontSize(8.5);
+  doc.setFont('Helvetica', 'normal');
+  doc.setTextColor(15, 23, 42);
+  doc.text('Endereço / Local:', 112, rightY);
+  doc.setFont('Helvetica', 'bold');
+  doc.setTextColor(0, 0, 0);
+  doc.setFontSize(locFontSize);
+  doc.text(splitLoc, 148, rightY);
+  rightY += Math.max(1, splitLoc.length) * 4.8;
+
+  doc.setFontSize(8.5);
+  doc.setFont('Helvetica', 'normal');
+  doc.setTextColor(15, 23, 42);
+  doc.text('Gerente Responsável:', 112, rightY);
+  doc.setFont('Helvetica', 'bold');
+  doc.setTextColor(0, 0, 0);
+  doc.setFontSize(mgrFontSize);
+  doc.text(splitMgr, 148, rightY);
+
+  // Table Data
   const tableData: any[][] = [];
   let totalQuantity = 0;
 
@@ -239,10 +394,10 @@ export function generateRomaneioPDF(
     ]);
   });
 
-  // Table Render with increased font size
+  // Table Render
   autoTable(doc, {
     startY: cardY + cardHeight + 5,
-    margin: { left: 12, right: 12 },
+    margin: { top: 43, bottom: 22, left: 12, right: 12 },
     head: [['Seq', 'Código', 'Descrição do Produto', 'Classificação', 'Unid', 'Qtd Solicitada']],
     body: tableData,
     theme: 'striped',
@@ -269,20 +424,20 @@ export function generateRomaneioPDF(
 
   let finalY = (doc as any).lastAutoTable.finalY + 8;
 
-  if (finalY > 215) {
+  if (finalY > 205) {
     doc.addPage();
-    finalY = 20;
+    finalY = 43;
   }
 
   // Conferência Box
-  doc.setDrawColor(8, 145, 178);
+  doc.setDrawColor(...RAMOS_COLORS.blue);
   doc.setLineWidth(0.6);
   doc.setFillColor(236, 254, 255);
   doc.roundedRect(12, finalY, 186, 26, 1.5, 1.5, 'FD');
 
   doc.setFont('Helvetica', 'bold');
   doc.setFontSize(9);
-  doc.setTextColor(8, 145, 178);
+  doc.setTextColor(...RAMOS_COLORS.blue);
   doc.text('CONFERÊNCIA DE EMBALAGEM / VOLUMES (PREENCHIMENTO MANUAL NA CARGA/DESCARGA)', 16, finalY + 6);
 
   doc.setFont('Helvetica', 'normal');
@@ -293,11 +448,11 @@ export function generateRomaneioPDF(
   doc.text('2. VOLUMES RECEBIDOS (FILIAL DESTINO):             [ ____________ ] VOLUMES (Conferido na entrega)', 16, finalY + 23);
 
   // Signatures
-  let sigY = finalY + 34;
+  let sigY = finalY + 32;
 
-  if (sigY > 245) {
+  if (sigY > 235) {
     doc.addPage();
-    sigY = 30;
+    sigY = 43;
   }
 
   doc.setDrawColor(148, 163, 184);
@@ -327,13 +482,16 @@ export function generateRomaneioPDF(
   doc.text('Assinatura de Recebimento do Destino', 111, sigY + 21);
   doc.text('Nome por Extenso: ___________________________', 111, sigY + 26);
 
-  // Footer Stamp
-  const footerY = 286;
-  doc.setFont('Helvetica', 'italic');
-  doc.setFontSize(7);
-  doc.setTextColor(148, 163, 184);
-  doc.text('* Romaneio interno de transferência de mercadorias. Isento de valor fiscal.', 12, footerY);
-  doc.text(`Emitido de forma integrada via Sistema MOX em ${new Date().toLocaleString('pt-BR')}`, 12, footerY + 3.5);
+  // Apply brand header, logo, 1cm bands, and page numbers to all pages
+  applyBrandHeaderFooterToAllPages(
+    doc,
+    'ROMANEIO DE ENTREGA & GUIA DE TRANSPORTE',
+    'Controle de Saída, Despacho e Transferência entre Filiais',
+    orderIdText,
+    companyLogo,
+    `STATUS: ${order.status.toUpperCase()}`,
+    '* Romaneio interno de transferência de mercadorias. Isento de valor fiscal.'
+  );
 
   doc.save(`Romaneio_Pedido_${order.id.toUpperCase()}.pdf`);
 }
@@ -363,72 +521,102 @@ export function generatePurchaseOrderPDF(
     `STATUS: ${order.status.toUpperCase()}`
   );
 
-  const cardY = 41;
+  const cardY = 43;
 
-  // Card Left - Pedido Info
+  const docIdFontSize = getFittingFontSize(doc, docIdText, 52, 8, 6);
+  doc.setFontSize(docIdFontSize);
+  const splitDocId = doc.splitTextToSize(docIdText, 52);
+
+  const orderDate = order.createdAt ? new Date(order.createdAt).toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR');
+
+  const supplierName = supplier?.name || 'Não informado';
+  const supFontSize = getFittingFontSize(doc, supplierName, 55, 8, 6.5);
+  doc.setFontSize(supFontSize);
+  const splitSupplierName = doc.splitTextToSize(supplierName, 55);
+
+  const cnpjText = supplier?.cnpj || 'Não cadastrado';
+  const contactText = supplier?.contact || 'Não cadastrado';
+
+  const leftReqH = 10 + (splitDocId.length * 5) + 12;
+  const rightReqH = 10 + (splitSupplierName.length * 5) + 12;
+  const cardHeight = Math.max(28, leftReqH, rightReqH);
+
+  // Backgrounds
   doc.setFillColor(248, 250, 252);
   doc.setDrawColor(226, 232, 240);
   doc.setLineWidth(0.3);
-  doc.roundedRect(12, cardY, 90, 28, 1.5, 1.5, 'FD');
+  doc.roundedRect(12, cardY, 90, cardHeight, 1.5, 1.5, 'FD');
 
-  doc.setFont('Helvetica', 'bold');
-  doc.setFontSize(8.5);
-  doc.setTextColor(15, 23, 42);
-  doc.text('DADOS DA ORDEM DE COMPRA', 16, cardY + 5.5);
-
-  doc.setFontSize(8);
-  doc.setFont('Helvetica', 'normal');
-  doc.setTextColor(100, 116, 139);
-  doc.text('Nº da Ordem:', 16, cardY + 11);
-  doc.setFont('Helvetica', 'bold');
-  doc.setTextColor(15, 23, 42);
-  doc.text(docIdText, 45, cardY + 11);
-
-  doc.setFont('Helvetica', 'normal');
-  doc.setTextColor(100, 116, 139);
-  doc.text('Data de Emissão:', 16, cardY + 16);
-  doc.setFont('Helvetica', 'normal');
-  doc.setTextColor(15, 23, 42);
-  const orderDate = order.createdAt ? new Date(order.createdAt).toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR');
-  doc.text(orderDate, 45, cardY + 16);
-
-  doc.setFont('Helvetica', 'normal');
-  doc.setTextColor(100, 116, 139);
-  doc.text('Situação Atual:', 16, cardY + 21);
-  doc.setFont('Helvetica', 'bold');
-  doc.setTextColor(8, 145, 178);
-  doc.text(order.status.toUpperCase(), 45, cardY + 21);
-
-  // Card Right - Fornecedor Info
   doc.setFillColor(248, 250, 252);
-  doc.roundedRect(108, cardY, 90, 28, 1.5, 1.5, 'FD');
+  doc.roundedRect(108, cardY, 90, cardHeight, 1.5, 1.5, 'FD');
 
+  // Left Text
+  let leftY = cardY + 5.5;
   doc.setFont('Helvetica', 'bold');
   doc.setFontSize(8.5);
   doc.setTextColor(15, 23, 42);
-  doc.text('DADOS DO FORNECEDOR', 112, cardY + 5.5);
+  doc.text('DADOS DA ORDEM DE COMPRA', 16, leftY);
+  leftY += 5.5;
 
   doc.setFontSize(8);
   doc.setFont('Helvetica', 'normal');
   doc.setTextColor(100, 116, 139);
-  doc.text('Razão Social:', 112, cardY + 11);
+  doc.text('Nº da Ordem:', 16, leftY);
   doc.setFont('Helvetica', 'bold');
   doc.setTextColor(15, 23, 42);
-  doc.text(supplier?.name || 'Não informado', 138, cardY + 11);
+  doc.setFontSize(docIdFontSize);
+  doc.text(splitDocId, 45, leftY);
+  leftY += Math.max(1, splitDocId.length) * 5;
+
+  doc.setFontSize(8);
+  doc.setFont('Helvetica', 'normal');
+  doc.setTextColor(100, 116, 139);
+  doc.text('Data de Emissão:', 16, leftY);
+  doc.setFont('Helvetica', 'normal');
+  doc.setTextColor(15, 23, 42);
+  doc.text(orderDate, 45, leftY);
+  leftY += 5;
 
   doc.setFont('Helvetica', 'normal');
   doc.setTextColor(100, 116, 139);
-  doc.text('CNPJ:', 112, cardY + 16);
+  doc.text('Situação Atual:', 16, leftY);
+  doc.setFont('Helvetica', 'bold');
+  doc.setTextColor(...RAMOS_COLORS.orange);
+  doc.text(order.status.toUpperCase(), 45, leftY, { maxWidth: 52 });
+
+  // Right Text
+  let rightY = cardY + 5.5;
+  doc.setFont('Helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.setTextColor(15, 23, 42);
+  doc.text('DADOS DO FORNECEDOR', 112, rightY);
+  rightY += 5.5;
+
+  doc.setFontSize(8);
+  doc.setFont('Helvetica', 'normal');
+  doc.setTextColor(100, 116, 139);
+  doc.text('Razão Social:', 112, rightY);
+  doc.setFont('Helvetica', 'bold');
+  doc.setTextColor(15, 23, 42);
+  doc.setFontSize(supFontSize);
+  doc.text(splitSupplierName, 138, rightY);
+  rightY += Math.max(1, splitSupplierName.length) * 5;
+
+  doc.setFontSize(8);
+  doc.setFont('Helvetica', 'normal');
+  doc.setTextColor(100, 116, 139);
+  doc.text('CNPJ:', 112, rightY);
   doc.setFont('Helvetica', 'normal');
   doc.setTextColor(15, 23, 42);
-  doc.text(supplier?.cnpj || 'Não cadastrado', 138, cardY + 16);
+  doc.text(cnpjText, 138, rightY, { maxWidth: 55 });
+  rightY += 5;
 
   doc.setFont('Helvetica', 'normal');
   doc.setTextColor(100, 116, 139);
-  doc.text('Contato:', 112, cardY + 21);
+  doc.text('Contato:', 112, rightY);
   doc.setFont('Helvetica', 'normal');
   doc.setTextColor(15, 23, 42);
-  doc.text(supplier?.contact || 'Não cadastrado', 138, cardY + 21);
+  doc.text(contactText, 138, rightY, { maxWidth: 55 });
 
   // Table Data
   let grandTotal = 0;
@@ -449,8 +637,8 @@ export function generatePurchaseOrderPDF(
   });
 
   autoTable(doc, {
-    startY: cardY + 32,
-    margin: { left: 12, right: 12 },
+    startY: cardY + cardHeight + 4,
+    margin: { top: 43, bottom: 22, left: 12, right: 12 },
     head: [['Código', 'Descrição do Produto', 'Categoria', 'Qtd', 'Vlr. Unitário', 'Total (R$)']],
     body: tableData,
     theme: 'striped',
@@ -476,9 +664,9 @@ export function generatePurchaseOrderPDF(
 
   let finalY = (doc as any).lastAutoTable.finalY + 8;
 
-  if (finalY > 230) {
+  if (finalY > 220) {
     doc.addPage();
-    finalY = 20;
+    finalY = 43;
   }
 
   // Totals Banner
@@ -491,16 +679,19 @@ export function generatePurchaseOrderPDF(
   doc.text('VALOR TOTAL DA ORDEM DE COMPRA:', 112, finalY + 6.5);
 
   doc.setFontSize(11);
-  doc.setTextColor(56, 189, 248); // sky-400
+  doc.setTextColor(243, 112, 33); // Laranja Ramos highlight
   doc.text(`R$ ${grandTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, 194, finalY + 12, { align: 'right' });
 
-  // Footer
-  const footerY = 286;
-  doc.setFont('Helvetica', 'italic');
-  doc.setFontSize(7);
-  doc.setTextColor(148, 163, 184);
-  doc.text('Documento gerado eletronicamente pelo Sistema MOX - Lojas Ramos.', 12, footerY);
-  doc.text(`Data e hora de emissão: ${new Date().toLocaleString('pt-BR')}`, 12, footerY + 3.5);
+  // Apply brand header, logo, 1cm bands, and page numbers to all pages
+  applyBrandHeaderFooterToAllPages(
+    doc,
+    'ORDEM DE COMPRA DE MERCADORIAS',
+    'Documento de Solicitação de Suprimentos ao Fornecedor',
+    docIdText,
+    companyLogo,
+    `STATUS: ${order.status.toUpperCase()}`,
+    'Documento gerado eletronicamente pelo Sistema MOX - Lojas Ramos.'
+  );
 
   doc.save(`pedido_compra_${order.id}.pdf`);
 }
@@ -541,88 +732,121 @@ export function generateBranchOrderPDF(
     isDraft ? 'RASCUNHO' : `PRIORIDADE: ${priority.toUpperCase()}`
   );
 
-  const cardY = 40;
-  const cardHeight = 35;
+  const cardY = 43;
 
-  // Card Left - FILIAL SOLICITANTE / DESTINO (QUADRO AMARELO COM TEXTO PRETO)
-  doc.setFillColor(254, 240, 138); // Background amarelo
-  doc.setDrawColor(234, 179, 8); // Borda amarela destacada
+  const leftTitleText = 'FILIAL SOLICITANTE / DESTINO';
+  const leftTitleFontSize = getFittingFontSize(doc, leftTitleText, 82, 10.5, 7.5);
+
+  const branchName = (branch?.name || 'Filial não identificada').toUpperCase();
+  const bFontSize = getFittingFontSize(doc, branchName, 82, 11, 7.5);
+  doc.setFontSize(bFontSize);
+  const splitBranch = doc.splitTextToSize(branchName, 82);
+
+  const mgrText = branch?.manager || 'Não cadastrado';
+  const mgrFontSize = getFittingFontSize(doc, mgrText, 52, 8.5, 6.5);
+  doc.setFontSize(mgrFontSize);
+  const splitMgr = doc.splitTextToSize(mgrText, 52);
+
+  const locText = branch?.location || 'Não cadastrado';
+  const locFontSize = getFittingFontSize(doc, locText, 52, 8.5, 6.5);
+  doc.setFontSize(locFontSize);
+  const splitLoc = doc.splitTextToSize(locText, 52);
+
+  const dateText = isDraft
+    ? new Date().toLocaleString('pt-BR')
+    : new Date(orderObj?.createdAt || Date.now()).toLocaleString('pt-BR');
+
+  const leftReqH = 13 + (splitBranch.length * 5) + (splitMgr.length * 4.8) + (splitLoc.length * 4.8) + 6;
+  const rightReqH = 35;
+  const cardHeight = Math.max(35, leftReqH, rightReqH);
+
+  // Card Backgrounds FIRST
+  doc.setFillColor(254, 240, 138); // Yellow background
+  doc.setDrawColor(234, 179, 8); // Yellow border
   doc.setLineWidth(0.8);
   doc.roundedRect(12, cardY, 90, cardHeight, 2, 2, 'FD');
 
-  doc.setFont('Helvetica', 'bold');
-  doc.setFontSize(10.5);
-  doc.setTextColor(0, 0, 0); // Texto preto
-  doc.text('FILIAL SOLICITANTE / DESTINO', 16, cardY + 6.5);
-
-  doc.setFontSize(9.5);
-  doc.setFont('Helvetica', 'bold');
-  doc.setTextColor(15, 23, 42); // Texto preto
-  doc.text('LOJA / FILIAL:', 16, cardY + 14);
-
-  // PROMINENT BRANCH NAME (Large font size 13pt bold)
-  doc.setFont('Helvetica', 'bold');
-  doc.setFontSize(13);
-  doc.setTextColor(0, 0, 0); // Texto preto em destaque
-  const branchName = branch?.name || 'Filial não identificada';
-  doc.text(branchName.toUpperCase(), 16, cardY + 20);
-
-  doc.setFontSize(9);
-  doc.setFont('Helvetica', 'normal');
-  doc.setTextColor(15, 23, 42); // Texto preto
-  doc.text('Gerente Resp.:', 16, cardY + 26);
-  doc.setFont('Helvetica', 'bold');
-  doc.setTextColor(0, 0, 0); // Texto preto
-  doc.text(branch?.manager || 'Não cadastrado', 46, cardY + 26);
-
-  doc.setFont('Helvetica', 'normal');
-  doc.setTextColor(15, 23, 42); // Texto preto
-  doc.text('Localização:', 16, cardY + 31);
-  doc.setFont('Helvetica', 'bold');
-  doc.setTextColor(0, 0, 0); // Texto preto
-  doc.text(branch?.location || 'Não cadastrado', 46, cardY + 31);
-
-  // Card Right - Detalhes da Requisição
   doc.setFillColor(248, 250, 252);
   doc.setDrawColor(226, 232, 240);
   doc.setLineWidth(0.4);
   doc.roundedRect(108, cardY, 90, cardHeight, 2, 2, 'FD');
 
+  // Left Text
+  let leftY = cardY + 6.5;
+  doc.setFont('Helvetica', 'bold');
+  doc.setFontSize(leftTitleFontSize);
+  doc.setTextColor(0, 0, 0);
+  doc.text(leftTitleText, 16, leftY);
+  leftY += 6.5;
+
+  doc.setFontSize(8.5);
+  doc.setFont('Helvetica', 'bold');
+  doc.setTextColor(15, 23, 42);
+  doc.text('LOJA / FILIAL:', 16, leftY);
+  leftY += 4.5;
+
+  doc.setFont('Helvetica', 'bold');
+  doc.setFontSize(bFontSize);
+  doc.setTextColor(0, 0, 0);
+  doc.text(splitBranch, 16, leftY);
+  leftY += Math.max(1, splitBranch.length) * 5;
+
+  doc.setFontSize(8.5);
+  doc.setFont('Helvetica', 'normal');
+  doc.setTextColor(15, 23, 42);
+  doc.text('Gerente Resp.:', 16, leftY);
+  doc.setFont('Helvetica', 'bold');
+  doc.setTextColor(0, 0, 0);
+  doc.setFontSize(mgrFontSize);
+  doc.text(splitMgr, 46, leftY);
+  leftY += Math.max(1, splitMgr.length) * 4.8;
+
+  doc.setFontSize(8.5);
+  doc.setFont('Helvetica', 'normal');
+  doc.setTextColor(15, 23, 42);
+  doc.text('Localização:', 16, leftY);
+  doc.setFont('Helvetica', 'bold');
+  doc.setTextColor(0, 0, 0);
+  doc.setFontSize(locFontSize);
+  doc.text(splitLoc, 46, leftY);
+
+  // Right Text
+  let rightY = cardY + 6.5;
   doc.setFont('Helvetica', 'bold');
   doc.setFontSize(9.5);
   doc.setTextColor(15, 23, 42);
-  doc.text('DETALHES DA REQUISIÇÃO', 112, cardY + 6.5);
+  doc.text('DETALHES DA REQUISIÇÃO', 112, rightY);
+  rightY += 6.5;
 
-  doc.setFontSize(9);
+  doc.setFontSize(8.5);
   doc.setFont('Helvetica', 'normal');
   doc.setTextColor(100, 116, 139);
-  doc.text('Data de Emissão:', 112, cardY + 14);
+  doc.text('Data de Emissão:', 112, rightY);
   doc.setFont('Helvetica', 'normal');
   doc.setTextColor(15, 23, 42);
-  const dateText = isDraft
-    ? new Date().toLocaleString('pt-BR')
-    : new Date(orderObj?.createdAt || Date.now()).toLocaleString('pt-BR');
-  doc.text(dateText, 146, cardY + 14);
+  doc.text(dateText, 146, rightY, { maxWidth: 48 });
+  rightY += 6;
 
   doc.setFont('Helvetica', 'normal');
   doc.setTextColor(100, 116, 139);
-  doc.text('Prioridade:', 112, cardY + 21);
+  doc.text('Prioridade:', 112, rightY);
   doc.setFont('Helvetica', 'bold');
   if (priority === 'urgent' || orderObj?.priority === 'urgent') {
-    doc.setTextColor(225, 29, 72); // rose-600
-    doc.text('URGENTE', 146, cardY + 21);
+    doc.setTextColor(225, 29, 72);
+    doc.text('URGENTE', 146, rightY, { maxWidth: 48 });
   } else {
-    doc.setTextColor(8, 145, 178); // cyan-600
-    doc.text('NORMAL', 146, cardY + 21);
+    doc.setTextColor(...RAMOS_COLORS.orange);
+    doc.text('NORMAL', 146, rightY, { maxWidth: 48 });
   }
+  rightY += 6;
 
   doc.setFont('Helvetica', 'normal');
   doc.setTextColor(100, 116, 139);
-  doc.text('Situação:', 112, cardY + 28);
+  doc.text('Situação:', 112, rightY);
   doc.setFont('Helvetica', 'bold');
   doc.setTextColor(15, 23, 42);
   const statusLabel = isDraft ? 'Rascunho' : (orderObj?.status?.toUpperCase() || 'SOLICITADO');
-  doc.text(statusLabel, 146, cardY + 28);
+  doc.text(statusLabel, 146, rightY, { maxWidth: 48 });
 
   // Table Data
   let runningTotal = 0;
@@ -650,7 +874,7 @@ export function generateBranchOrderPDF(
 
   autoTable(doc, {
     startY: cardY + cardHeight + 5,
-    margin: { left: 12, right: 12 },
+    margin: { top: 43, bottom: 22, left: 12, right: 12 },
     head: [['Código', 'Descrição do Produto', 'Categoria', 'Unid', 'Qtd', 'Vlr. Unit', 'Subtotal (R$)']],
     body: tableData,
     theme: 'striped',
@@ -677,9 +901,9 @@ export function generateBranchOrderPDF(
 
   let finalY = (doc as any).lastAutoTable.finalY + 8;
 
-  if (finalY > 220) {
+  if (finalY > 210) {
     doc.addPage();
-    finalY = 20;
+    finalY = 43;
   }
 
   // Summary and Notes Box
@@ -716,16 +940,19 @@ export function generateBranchOrderPDF(
   doc.text('VALOR TOTAL ESTIMADO:', 120, finalY + 14);
 
   doc.setFontSize(10);
-  doc.setTextColor(56, 189, 248);
+  doc.setTextColor(243, 112, 33); // Laranja Ramos highlight
   doc.text(`R$ ${runningTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, 192, finalY + 14, { align: 'right' });
 
-  // Footer
-  const footerY = 286;
-  doc.setFont('Helvetica', 'italic');
-  doc.setFontSize(7);
-  doc.setTextColor(148, 163, 184);
-  doc.text('Lojas Ramos Distribuição LTDA. • Abastecimento Interno', 12, footerY);
-  doc.text(`Página 1 de ${doc.getNumberOfPages()}`, 198, footerY, { align: 'right' });
+  // Apply brand header, logo, 1cm bands, and page numbers to all pages
+  applyBrandHeaderFooterToAllPages(
+    doc,
+    title,
+    'Guia Interna de Requisição e Reposição de Estoque de Filial',
+    docIdText,
+    companyLogo,
+    isDraft ? 'RASCUNHO' : `PRIORIDADE: ${priority.toUpperCase()}`,
+    'Lojas Ramos Distribuição LTDA. • Abastecimento Interno'
+  );
 
   const fileName = isDraft ? 'rascunho_pedido_ramos.pdf' : `pedido_ramos_${orderObj?.id}.pdf`;
   doc.save(fileName);
@@ -752,7 +979,6 @@ export function generateBoxLabelPDF(
   const branchLocation = branch?.location || 'Não cadastrada';
   const branchManager = branch?.manager || 'Não informado';
 
-  // Extract city or location highlight
   let cityName = 'CIDADE DESTINO';
   if (branch?.location) {
     const parts = branch.location.split(/[-–,]/);
@@ -772,127 +998,149 @@ export function generateBoxLabelPDF(
       doc.addPage();
     }
 
-    // Outer border (Margin frame around A4 sheet)
-    doc.setDrawColor(3, 105, 161); // sky-700
-    doc.setLineWidth(1.5);
-    doc.rect(8, 8, 194, 281, 'S');
+    // Always draw top & bottom 1cm Laranja and Azul brand bands on every label page
+    drawBrandBands(doc);
 
-    // Inner subtle double line
-    doc.setDrawColor(186, 230, 253); // sky-200
-    doc.setLineWidth(0.4);
-    doc.rect(10, 10, 190, 277, 'S');
+    // Outer border frame (Margin frame around A4 sheet, sitting neatly between 1cm bands)
+    doc.setDrawColor(...RAMOS_COLORS.blue);
+    doc.setLineWidth(1.2);
+    doc.rect(8, 12, 194, 273, 'S');
 
-    // Header top bar - Lojas Ramos (LIGHT BLUE SHADE)
-    doc.setFillColor(224, 242, 254); // Light sky blue (sky-100)
-    doc.setDrawColor(186, 230, 253);
-    doc.rect(10, 10, 190, 23, 'FD');
+    // Header top bar - Lojas Ramos
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(203, 213, 225);
+    doc.roundedRect(10, 12, 190, 22, 2, 2, 'FD');
+
+    // Render company logo on left if available
+    let logoWidthOffset = 16;
+    if (companyLogo) {
+      try {
+        let format: 'PNG' | 'JPEG' | 'WEBP' = 'PNG';
+        if (companyLogo.includes('image/jpeg') || companyLogo.includes('image/jpg')) format = 'JPEG';
+        else if (companyLogo.includes('image/webp')) format = 'WEBP';
+
+        doc.addImage(companyLogo, format, 13, 13.5, 22, 19);
+        logoWidthOffset = 38;
+      } catch (e) {
+        console.warn("Could not render logo in label:", e);
+      }
+    }
 
     doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(13);
-    doc.setTextColor(15, 23, 42); // slate-900 dark text
-    doc.text('LOJAS RAMOS - TRANSPORTE E LOGÍSTICA', 16, 20);
+    doc.setFontSize(12);
+    doc.setTextColor(15, 23, 42);
+    doc.text('LOJAS RAMOS - TRANSPORTE E LOGÍSTICA', logoWidthOffset, 21, { maxWidth: 100 });
+
+    doc.setFontSize(9);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(30, 41, 59);
+    doc.text(`EMISSÃO: ${currentDate}`, 194, 21, { align: 'right', maxWidth: 50 });
 
     doc.setFontSize(9.5);
     doc.setFont('Helvetica', 'bold');
-    doc.setTextColor(30, 41, 59); // slate-800
-    doc.text(`EMISSÃO: ${currentDate}`, 194, 20, { align: 'right' });
-
-    doc.setFontSize(10);
-    doc.setFont('Helvetica', 'bold');
-    doc.setTextColor(3, 105, 161); // sky-700
-    doc.text('ETIQUETA DE IDENTIFICAÇÃO DE CAIXA / CARGA', 16, 28);
+    doc.setTextColor(...RAMOS_COLORS.orange);
+    doc.text('ETIQUETA DE IDENTIFICAÇÃO DE CAIXA / CARGA', logoWidthOffset, 29, { maxWidth: 100 });
 
     // Yellow Box - VOLUME NUMBER BADGE (VERY PROMINENT)
     doc.setFillColor(254, 240, 138); // Yellow-200
     doc.setDrawColor(234, 179, 8); // Yellow-600
     doc.setLineWidth(1);
-    doc.roundedRect(14, 36, 182, 22, 3, 3, 'FD');
+    doc.roundedRect(14, 37, 182, 22, 3, 3, 'FD');
 
     doc.setFont('Helvetica', 'bold');
     doc.setFontSize(14);
-    doc.setTextColor(161, 98, 7); // Yellow-800
-    doc.text('VOLUME / CAIXA:', 22, 50);
+    doc.setTextColor(161, 98, 7);
+    doc.text('VOLUME / CAIXA:', 22, 51, { maxWidth: 70 });
 
     doc.setFontSize(22);
     doc.setTextColor(0, 0, 0);
-    doc.text(`CAIXA ${i} DE ${totalLabels}`, 188, 51, { align: 'right' });
+    doc.text(`CAIXA ${i} DE ${totalLabels}`, 188, 52, { align: 'right', maxWidth: 90 });
 
-    // BIG HIGHLIGHTED BOX: CIDADE & FILIAL DESTINO (YELLOW HIGHLIGHT AS REQUESTED)
+    // BIG HIGHLIGHTED BOX: CIDADE & FILIAL DESTINO
     doc.setFillColor(254, 240, 138); // Amarelo
-    doc.setDrawColor(202, 138, 4); // Borda Amarela escura
+    doc.setDrawColor(202, 138, 4);
     doc.setLineWidth(1.2);
-    doc.roundedRect(14, 62, 182, 70, 4, 4, 'FD');
+    doc.roundedRect(14, 62, 182, 68, 4, 4, 'FD');
 
     doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(11);
+    doc.setFontSize(10.5);
     doc.setTextColor(0, 0, 0);
-    doc.text('▶ CIDADE DESTINO DA CARGA:', 20, 72);
+    doc.text('▶ CIDADE DESTINO DA CARGA:', 20, 72, { maxWidth: 170 });
 
     // GIANT CITY NAME
     doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(28);
-    doc.setTextColor(0, 0, 0); // Texto Preto Alto Contraste
-    doc.text(cityName, 20, 84);
+    let cityFontSize = 26;
+    if (cityName.length > 15) cityFontSize = 20;
+    if (cityName.length > 25) cityFontSize = 16;
+    doc.setFontSize(cityFontSize);
+    doc.setTextColor(0, 0, 0);
+    doc.text(cityName, 20, 84, { maxWidth: 170 });
 
     // Divider inside destination box
     doc.setDrawColor(234, 179, 8);
     doc.setLineWidth(0.8);
-    doc.line(20, 89, 190, 89);
+    doc.line(20, 88, 190, 88);
 
-    doc.setFontSize(11);
+    doc.setFontSize(10.5);
     doc.setFont('Helvetica', 'bold');
     doc.setTextColor(0, 0, 0);
-    doc.text('▶ FILIAL RECEBEDORA / UNIDADE:', 20, 97);
+    doc.text('▶ FILIAL RECEBEDORA / UNIDADE:', 20, 96, { maxWidth: 170 });
 
     // GIANT BRANCH NAME
     doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(22);
+    let bNameFontSize = 20;
+    if (branchName.length > 20) bNameFontSize = 16;
+    if (branchName.length > 30) bNameFontSize = 13;
+    doc.setFontSize(bNameFontSize);
     doc.setTextColor(0, 0, 0);
-    doc.text(branchName, 20, 107);
+    doc.text(branchName, 20, 106, { maxWidth: 170 });
 
-    doc.setFontSize(11);
+    doc.setFontSize(10);
     doc.setFont('Helvetica', 'normal');
     doc.setTextColor(30, 41, 59);
-    doc.text(`Endereço/Local: ${branchLocation}`, 20, 117);
-    doc.text(`Gerente Responsável: ${branchManager}`, 20, 124);
+    doc.text(`Endereço/Local: ${branchLocation}`, 20, 116, { maxWidth: 170 });
+    doc.text(`Gerente Responsável: ${branchManager}`, 20, 123, { maxWidth: 170 });
 
-    // ORDER IDENTIFICATION CARD (LIGHT BLUE SHADE)
-    doc.setFillColor(224, 242, 254); // Light sky blue (sky-100)
-    doc.setDrawColor(186, 230, 253); // sky-200 border
+    // ORDER IDENTIFICATION CARD
+    doc.setFillColor(224, 242, 254); // Light sky blue
+    doc.setDrawColor(186, 230, 253);
     doc.setLineWidth(1);
-    doc.roundedRect(14, 136, 182, 60, 4, 4, 'FD');
+    doc.roundedRect(14, 134, 182, 58, 4, 4, 'FD');
 
     doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(11);
-    doc.setTextColor(3, 105, 161); // sky-700
-    doc.text('▶ CÓDIGO DO PEDIDO / SOLICITAÇÃO:', 20, 147);
+    doc.setFontSize(10.5);
+    doc.setTextColor(...RAMOS_COLORS.blue);
+    doc.text('▶ CÓDIGO DO PEDIDO / SOLICITAÇÃO:', 20, 145, { maxWidth: 170 });
 
     // GIANT ORDER ID
     doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(30);
-    doc.setTextColor(15, 23, 42); // Dark slate-900 text for strong visual pop
-    doc.text(orderIdText, 20, 162);
+    let orderIdFontSize = 28;
+    if (orderIdText.length > 15) orderIdFontSize = 22;
+    if (orderIdText.length > 22) orderIdFontSize = 18;
+    doc.setFontSize(orderIdFontSize);
+    doc.setTextColor(15, 23, 42);
+    doc.text(orderIdText, 20, 160, { maxWidth: 170 });
 
     doc.setDrawColor(186, 230, 253);
     doc.setLineWidth(0.6);
-    doc.line(20, 168, 190, 168);
+    doc.line(20, 166, 190, 166);
 
-    doc.setFontSize(11);
+    doc.setFontSize(10);
     doc.setFont('Helvetica', 'bold');
     doc.setTextColor(30, 41, 59);
-    doc.text('ORIGEM DA CARGA: CENTRO DE DISTRIBUIÇÃO CENTRAL - LOJAS RAMOS', 20, 177);
-    doc.text(`STATUS DO PEDIDO: EMBALADO E SEPARADO PARA EMBARQUE`, 20, 185);
+    doc.text('ORIGEM DA CARGA: CENTRO DE DISTRIBUIÇÃO CENTRAL - LOJAS RAMOS', 20, 175, { maxWidth: 170 });
+    doc.text(`STATUS DO PEDIDO: EMBALADO E SEPARADO PARA EMBARQUE`, 20, 183, { maxWidth: 170 });
 
-    // VISUAL INDUSTRIAL CODE BOX (SIMULATED BARCODE LINES & LARGE DIGITS)
+    // BARCODE BOX
     doc.setFillColor(248, 250, 252);
     doc.setDrawColor(203, 213, 225);
     doc.setLineWidth(0.8);
-    doc.roundedRect(14, 200, 182, 50, 3, 3, 'FD');
+    doc.roundedRect(14, 196, 182, 48, 3, 3, 'FD');
 
     doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(10);
+    doc.setFontSize(9.5);
     doc.setTextColor(71, 85, 105);
-    doc.text('CÓDIGO DE RASTREABILIDADE INTERNA (LOGÍSTICA REVERSA E DISTRIBUIÇÃO):', 20, 209);
+    doc.text('CÓDIGO DE RASTREABILIDADE INTERNA (LOGÍSTICA REVERSA E DISTRIBUIÇÃO):', 20, 205);
 
     // Simulated Barcode Lines
     let lineX = 22;
@@ -900,31 +1148,31 @@ export function generateBoxLabelPDF(
     for (let b = 0; b < barWidths.length && lineX < 184; b++) {
       const w = barWidths[b];
       doc.setFillColor(15, 23, 42);
-      doc.rect(lineX, 213, w, 22, 'F');
+      doc.rect(lineX, 209, w, 20, 'F');
       lineX += w + (b % 2 === 0 ? 2 : 1);
     }
 
     doc.setFont('Courier', 'bold');
-    doc.setFontSize(14);
+    doc.setFontSize(13);
     doc.setTextColor(15, 23, 42);
-    doc.text(`* ${orderIdText} - VOL-${i}/${totalLabels} *`, 100, 243, { align: 'center' });
+    doc.text(`* ${orderIdText} - VOL-${i}/${totalLabels} *`, 100, 238, { align: 'center' });
 
     // FOOTER WARNING BOX
-    doc.setFillColor(254, 242, 242); // Red light alert
+    doc.setFillColor(254, 242, 242);
     doc.setDrawColor(248, 113, 113);
     doc.setLineWidth(0.6);
-    doc.roundedRect(14, 254, 182, 27, 2, 2, 'FD');
+    doc.roundedRect(14, 248, 182, 25, 2, 2, 'FD');
 
     doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.setTextColor(185, 28, 28); // Red-700
-    doc.text('⚠ ATENÇÃO MOTORISTA / TRANSPORTE & CONFERÊNCIA:', 20, 262);
+    doc.setFontSize(9.5);
+    doc.setTextColor(185, 28, 28);
+    doc.text('⚠ ATENÇÃO MOTORISTA / TRANSPORTE & CONFERÊNCIA:', 20, 255);
 
     doc.setFont('Helvetica', 'normal');
-    doc.setFontSize(9);
+    doc.setFontSize(8.5);
     doc.setTextColor(127, 29, 29);
-    doc.text('1. Esta etiqueta deve permanecer visível na parte externa da caixa durante todo o transporte.', 20, 268);
-    doc.text('2. A filial recebedora deve conferir as quantidades com a nota de romaneio no momento do descarregamento.', 20, 274);
+    doc.text('1. Esta etiqueta deve permanecer visível na parte externa da caixa durante todo o transporte.', 20, 261);
+    doc.text('2. A filial recebedora deve conferir as quantidades com a nota de romaneio no momento do descarregamento.', 20, 267);
   }
 
   doc.save(`etiqueta_caixa_${orderId}.pdf`);
@@ -986,14 +1234,14 @@ export function generateEpiTermPDF(
     // Header
     addHeaderWithLogo(
       doc,
-      'LOJAS RAMOS',
-      'Termo de Recebimento e Responsabilidade de EPI',
+      'TERMO DE RECEBIMENTO E RESPONSABILIDADE DE EPI',
+      'Controle de Entrega de Equipamentos de Proteção Individual',
       `DIST-${distId}`,
       companyLogo,
       'EPI / SEGURANÇA'
     );
 
-    let yPos = 42;
+    let yPos = 43;
 
     // Info Box (Sucursal & Beneficiario)
     doc.setFillColor(241, 245, 249);
@@ -1003,26 +1251,26 @@ export function generateEpiTermPDF(
     doc.setFont('Helvetica', 'bold');
     doc.setFontSize(8);
     doc.setTextColor(100, 116, 139);
-    doc.text('EMPRESA / SUCURSAL:', 16, yPos + 6);
+    doc.text('EMPRESA / SUCURSAL:', 16, yPos + 6, { maxWidth: 88 });
     doc.setFontSize(10);
     doc.setTextColor(15, 23, 42);
-    doc.text(`Lojas Ramos - ${branch?.name || 'Sucursal'}`, 16, yPos + 12);
+    doc.text(`Lojas Ramos - ${branch?.name || 'Sucursal'}`, 16, yPos + 12, { maxWidth: 88 });
     doc.setFont('Helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(71, 85, 105);
-    doc.text(branch?.location || '', 16, yPos + 17);
+    doc.text(branch?.location || '', 16, yPos + 17, { maxWidth: 88 });
 
     doc.setFont('Helvetica', 'bold');
     doc.setFontSize(8);
     doc.setTextColor(100, 116, 139);
-    doc.text('BENEFICIÁRIO / RECEBEDOR ÚNICO:', 110, yPos + 6);
+    doc.text('BENEFICIÁRIO / RECEBEDOR ÚNICO:', 110, yPos + 6, { maxWidth: 84 });
     doc.setFontSize(10);
     doc.setTextColor(6, 95, 70); // emerald-800
-    doc.text(recipientName, 110, yPos + 12);
+    doc.text(recipientName, 110, yPos + 12, { maxWidth: 84 });
     doc.setFont('Helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(71, 85, 105);
-    doc.text(`Data: ${new Date(distribution.createdAt).toLocaleDateString('pt-BR')}`, 110, yPos + 17);
+    doc.text(`Data: ${new Date(distribution.createdAt).toLocaleDateString('pt-BR')}`, 110, yPos + 17, { maxWidth: 84 });
 
     yPos += 28;
 
@@ -1041,7 +1289,7 @@ export function generateEpiTermPDF(
 
     autoTable(doc, {
       startY: yPos,
-      margin: { left: 12, right: 12 },
+      margin: { top: 43, bottom: 22, left: 12, right: 12 },
       head: [['Item / Equipamento', 'Código', 'Quantidade']],
       body: tableBody,
       headStyles: {
@@ -1080,15 +1328,15 @@ export function generateEpiTermPDF(
 
     doc.setFont('Helvetica', 'normal');
     doc.setFontSize(8);
-    doc.setTextColor(6, 78, 59); // emerald-950
+    doc.setTextColor(6, 78, 59);
     doc.text(splitDecl, 15, yPos + 6);
 
     yPos += boxHeight + 20;
 
     // Signature Block
-    if (yPos > 250) {
+    if (yPos > 235) {
       doc.addPage();
-      yPos = 30;
+      yPos = 43;
     }
 
     doc.setDrawColor(15, 23, 42);
@@ -1117,6 +1365,17 @@ export function generateEpiTermPDF(
     doc.setTextColor(100, 116, 139);
     doc.text('Data do Recebimento na Sucursal', 120, yPos + 9);
   });
+
+  // Apply brand headers, logo, 1cm bands, and page numbers to all pages
+  applyBrandHeaderFooterToAllPages(
+    doc,
+    'TERMO DE RECEBIMENTO E RESPONSABILIDADE DE EPI',
+    'Controle de Entrega de Equipamentos de Proteção Individual',
+    `DIST-${distId}`,
+    companyLogo,
+    'EPI / SEGURANÇA',
+    'Termo de Responsabilidade de EPI • Lojas Ramos'
+  );
 
   const fileName = selectedBranchId && selectedBranchId !== 'all'
     ? `termo_epi_ramos_${selectedBranchId}_dist_${distId}.pdf`
@@ -1188,86 +1447,130 @@ export function generateDistributionRomaneioPDF(
       distribution.type === 'epi' ? 'TIPO: EPIs' : 'TIPO: MERCADORIAS'
     );
 
-    const cardY = 40;
-    const cardHeight = 35;
+    const cardY = 43;
 
-    // Card Left - Dados de Origem
+    const leftTitleText = 'DADOS DA EXPEDIÇÃO / ORIGEM';
+    const leftTitleFontSize = getFittingFontSize(doc, leftTitleText, 82, 9.5, 7.5);
+
+    const distIdText = `#${distId}`;
+    const idFontSize = getFittingFontSize(doc, distIdText, 50, 8.5, 6.5);
+    doc.setFontSize(idFontSize);
+    const splitDistId = doc.splitTextToSize(distIdText, 50);
+
+    const distDate = distribution.createdAt ? new Date(distribution.createdAt).toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR');
+
+    const rightTitleText = 'DESTINATÁRIO / FILIAL DESTINO';
+    const rightTitleFontSize = getFittingFontSize(doc, rightTitleText, 82, 10.5, 7.5);
+
+    const branchName = (branch?.name || 'Filial não identificada').toUpperCase();
+    const bFontSize = getFittingFontSize(doc, branchName, 82, 11, 7.5);
+    doc.setFontSize(bFontSize);
+    const splitBranch = doc.splitTextToSize(branchName, 82);
+
+    const locText = branch?.location || 'Não cadastrada';
+    const locFontSize = getFittingFontSize(doc, locText, 48, 8.5, 6.5);
+    doc.setFontSize(locFontSize);
+    const splitLoc = doc.splitTextToSize(locText, 48);
+
+    const recipientFontSize = getFittingFontSize(doc, recipientName, 48, 8.5, 6.5);
+    doc.setFontSize(recipientFontSize);
+    const splitRecipient = doc.splitTextToSize(recipientName, 48);
+
+    const leftReqH = 13 + (splitDistId.length * 5) + 18;
+    const rightReqH = 13 + (splitBranch.length * 5) + (splitLoc.length * 4.8) + (splitRecipient.length * 4.8) + 6;
+    const cardHeight = Math.max(35, leftReqH, rightReqH);
+
+    // Card Backgrounds
     doc.setFillColor(248, 250, 252);
     doc.setDrawColor(226, 232, 240);
     doc.setLineWidth(0.4);
     doc.roundedRect(12, cardY, 90, cardHeight, 2, 2, 'FD');
 
-    doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(9.5);
-    doc.setTextColor(15, 23, 42);
-    doc.text('DADOS DA EXPEDIÇÃO / ORIGEM', 16, cardY + 6.5);
-
-    doc.setFontSize(9);
-    doc.setFont('Helvetica', 'normal');
-    doc.setTextColor(100, 116, 139);
-    doc.text('Protocolo ID:', 16, cardY + 13);
-    doc.setFont('Helvetica', 'bold');
-    doc.setTextColor(15, 23, 42);
-    doc.text(`#${distId}`, 48, cardY + 13);
-
-    doc.setFont('Helvetica', 'normal');
-    doc.setTextColor(100, 116, 139);
-    doc.text('Data Envio:', 16, cardY + 19);
-    doc.setFont('Helvetica', 'bold');
-    doc.setTextColor(15, 23, 42);
-    const distDate = distribution.createdAt ? new Date(distribution.createdAt).toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR');
-    doc.text(distDate, 48, cardY + 19);
-
-    doc.setFont('Helvetica', 'normal');
-    doc.setTextColor(100, 116, 139);
-    doc.text('Origem Carga:', 16, cardY + 25);
-    doc.setFont('Helvetica', 'bold');
-    doc.setTextColor(15, 23, 42);
-    doc.text('Centro de Distribuição Central', 48, cardY + 25);
-
-    doc.setFont('Helvetica', 'normal');
-    doc.setTextColor(100, 116, 139);
-    doc.text('Tipo Lançamento:', 16, cardY + 31);
-    doc.setFont('Helvetica', 'bold');
-    doc.setTextColor(15, 23, 42);
-    doc.text(distribution.type === 'epi' ? 'Distribuição de EPIs' : 'Distribuição Geral', 48, cardY + 31);
-
-    // Card Right - DESTINATÁRIO / FILIAL DESTINO
     doc.setFillColor(254, 240, 138); // Yellow background
     doc.setDrawColor(234, 179, 8);
     doc.setLineWidth(0.8);
     doc.roundedRect(108, cardY, 90, cardHeight, 2, 2, 'FD');
 
+    // Left Text
+    let leftY = cardY + 6.5;
     doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(10.5);
-    doc.setTextColor(0, 0, 0);
-    doc.text('DESTINATÁRIO / FILIAL DESTINO', 112, cardY + 6.5);
+    doc.setFontSize(leftTitleFontSize);
+    doc.setTextColor(15, 23, 42);
+    doc.text(leftTitleText, 16, leftY);
+    leftY += 6.5;
 
-    doc.setFontSize(9.5);
+    doc.setFontSize(8.5);
+    doc.setFont('Helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text('Protocolo ID:', 16, leftY);
     doc.setFont('Helvetica', 'bold');
     doc.setTextColor(15, 23, 42);
-    doc.text('FILIAL DESTINO:', 112, cardY + 14);
+    doc.setFontSize(idFontSize);
+    doc.text(splitDistId, 48, leftY);
+    leftY += Math.max(1, splitDistId.length) * 5;
+
+    doc.setFontSize(8.5);
+    doc.setFont('Helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text('Data Envio:', 16, leftY);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text(distDate, 48, leftY, { maxWidth: 50 });
+    leftY += 5;
+
+    doc.setFont('Helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text('Origem Carga:', 16, leftY);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text('Centro de Distribuição Central', 48, leftY, { maxWidth: 50 });
+    leftY += 5;
+
+    doc.setFont('Helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text('Tipo Lançamento:', 16, leftY);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text(distribution.type === 'epi' ? 'Distribuição de EPIs' : 'Distribuição Geral', 48, leftY, { maxWidth: 50 });
+
+    // Right Text
+    let rightY = cardY + 6.5;
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(rightTitleFontSize);
+    doc.setTextColor(0, 0, 0);
+    doc.text(rightTitleText, 112, rightY);
+    rightY += 6.5;
+
+    doc.setFontSize(8.5);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text('FILIAL DESTINO:', 112, rightY);
+    rightY += 4.5;
 
     doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(12);
+    doc.setFontSize(bFontSize);
     doc.setTextColor(0, 0, 0);
-    const branchName = branch?.name || 'Filial não identificada';
-    doc.text(branchName.toUpperCase(), 112, cardY + 20);
+    doc.text(splitBranch, 112, rightY);
+    rightY += Math.max(1, splitBranch.length) * 5;
 
-    doc.setFontSize(9);
+    doc.setFontSize(8.5);
     doc.setFont('Helvetica', 'normal');
     doc.setTextColor(15, 23, 42);
-    doc.text('Endereço / Local:', 112, cardY + 26);
+    doc.text('Endereço / Local:', 112, rightY);
     doc.setFont('Helvetica', 'bold');
     doc.setTextColor(0, 0, 0);
-    doc.text(branch?.location || 'Não cadastrada', 145, cardY + 26);
+    doc.setFontSize(locFontSize);
+    doc.text(splitLoc, 145, rightY);
+    rightY += Math.max(1, splitLoc.length) * 4.8;
 
+    doc.setFontSize(8.5);
     doc.setFont('Helvetica', 'normal');
     doc.setTextColor(15, 23, 42);
-    doc.text('Gerente / Recebedor:', 112, cardY + 31);
+    doc.text('Gerente / Recebedor:', 112, rightY);
     doc.setFont('Helvetica', 'bold');
     doc.setTextColor(0, 0, 0);
-    doc.text(recipientName, 145, cardY + 31);
+    doc.setFontSize(recipientFontSize);
+    doc.text(splitRecipient, 145, rightY);
 
     // Table Data
     const tableData: any[][] = [];
@@ -1287,7 +1590,7 @@ export function generateDistributionRomaneioPDF(
 
     autoTable(doc, {
       startY: cardY + cardHeight + 5,
-      margin: { left: 12, right: 12 },
+      margin: { top: 43, bottom: 22, left: 12, right: 12 },
       head: [['Seq', 'Código', 'Descrição do Produto', 'Classificação', 'Unid', 'Qtd Despachada', 'Conferência']],
       body: tableData,
       theme: 'striped',
@@ -1329,9 +1632,9 @@ export function generateDistributionRomaneioPDF(
     yPos += 22;
 
     // Signature Block
-    if (yPos > 240) {
+    if (yPos > 235) {
       doc.addPage();
-      yPos = 35;
+      yPos = 43;
     }
 
     doc.setDrawColor(15, 23, 42);
@@ -1359,6 +1662,17 @@ export function generateDistributionRomaneioPDF(
     doc.setTextColor(100, 116, 139);
     doc.text(`Recebedor Responsável - ${branch?.name || ''}`, 120, yPos + 9);
   });
+
+  // Apply brand header, logo, 1cm bands, and page numbers to all pages
+  applyBrandHeaderFooterToAllPages(
+    doc,
+    'ROMANEIO DE ENVIO & GUIA DE TRANSPORTE',
+    'Despacho de Mercadorias e Transferência em Lote entre Filiais',
+    `#${distId}`,
+    companyLogo,
+    distribution.type === 'epi' ? 'TIPO: EPIs' : 'TIPO: MERCADORIAS',
+    'Romaneio de Distribuição • Lojas Ramos'
+  );
 
   const fileName = selectedBranchId && selectedBranchId !== 'all'
     ? `romaneio_envio_ramos_${selectedBranchId}_dist_${distId}.pdf`
@@ -1429,86 +1743,130 @@ export function generateDistributionReceiptPDF(
       'RECEBIMENTO FILIAL'
     );
 
-    const cardY = 40;
-    const cardHeight = 35;
+    const cardY = 43;
 
-    // Card Left - Dados da Carga
+    const leftTitleText = 'DADOS DO REGISTRO DE DISTRIBUIÇÃO';
+    const leftTitleFontSize = getFittingFontSize(doc, leftTitleText, 82, 9.5, 7.5);
+
+    const distIdText = `#${distId}`;
+    const idFontSize = getFittingFontSize(doc, distIdText, 50, 8.5, 6.5);
+    doc.setFontSize(idFontSize);
+    const splitDistId = doc.splitTextToSize(distIdText, 50);
+
+    const distDate = distribution.createdAt ? new Date(distribution.createdAt).toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR');
+
+    const rightTitleText = 'FILIAL RECEBEDORA';
+    const rightTitleFontSize = getFittingFontSize(doc, rightTitleText, 82, 10.5, 7.5);
+
+    const branchName = (branch?.name || 'Filial não identificada').toUpperCase();
+    const bFontSize = getFittingFontSize(doc, branchName, 82, 11, 7.5);
+    doc.setFontSize(bFontSize);
+    const splitBranch = doc.splitTextToSize(branchName, 82);
+
+    const locText = branch?.location || 'Não cadastrada';
+    const locFontSize = getFittingFontSize(doc, locText, 48, 8.5, 6.5);
+    doc.setFontSize(locFontSize);
+    const splitLoc = doc.splitTextToSize(locText, 48);
+
+    const recipientFontSize = getFittingFontSize(doc, recipientName, 48, 8.5, 6.5);
+    doc.setFontSize(recipientFontSize);
+    const splitRecipient = doc.splitTextToSize(recipientName, 48);
+
+    const leftReqH = 13 + (splitDistId.length * 5) + 18;
+    const rightReqH = 13 + (splitBranch.length * 5) + (splitLoc.length * 4.8) + (splitRecipient.length * 4.8) + 6;
+    const cardHeight = Math.max(35, leftReqH, rightReqH);
+
+    // Card Backgrounds
     doc.setFillColor(248, 250, 252);
     doc.setDrawColor(226, 232, 240);
     doc.setLineWidth(0.4);
     doc.roundedRect(12, cardY, 90, cardHeight, 2, 2, 'FD');
 
-    doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(9.5);
-    doc.setTextColor(15, 23, 42);
-    doc.text('DADOS DO REGISTRO DE DISTRIBUIÇÃO', 16, cardY + 6.5);
-
-    doc.setFontSize(9);
-    doc.setFont('Helvetica', 'normal');
-    doc.setTextColor(100, 116, 139);
-    doc.text('Protocolo ID:', 16, cardY + 13);
-    doc.setFont('Helvetica', 'bold');
-    doc.setTextColor(15, 23, 42);
-    doc.text(`#${distId}`, 48, cardY + 13);
-
-    doc.setFont('Helvetica', 'normal');
-    doc.setTextColor(100, 116, 139);
-    doc.text('Data Lançamento:', 16, cardY + 19);
-    doc.setFont('Helvetica', 'bold');
-    doc.setTextColor(15, 23, 42);
-    const distDate = distribution.createdAt ? new Date(distribution.createdAt).toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR');
-    doc.text(distDate, 48, cardY + 19);
-
-    doc.setFont('Helvetica', 'normal');
-    doc.setTextColor(100, 116, 139);
-    doc.text('Origem Remetente:', 16, cardY + 25);
-    doc.setFont('Helvetica', 'bold');
-    doc.setTextColor(15, 23, 42);
-    doc.text('Almoxarifado / Estoque Central', 48, cardY + 25);
-
-    doc.setFont('Helvetica', 'normal');
-    doc.setTextColor(100, 116, 139);
-    doc.text('Modalidade:', 16, cardY + 31);
-    doc.setFont('Helvetica', 'bold');
-    doc.setTextColor(15, 23, 42);
-    doc.text(distribution.type === 'epi' ? 'Termo EPI com Assinatura' : 'Comprovante Padrão de Entrega', 48, cardY + 31);
-
-    // Card Right - FILIAL RECEBEDORA
     doc.setFillColor(236, 253, 245); // Emerald light background
     doc.setDrawColor(16, 185, 129);
     doc.setLineWidth(0.8);
     doc.roundedRect(108, cardY, 90, cardHeight, 2, 2, 'FD');
 
+    // Left Text
+    let leftY = cardY + 6.5;
     doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(10.5);
-    doc.setTextColor(6, 95, 70);
-    doc.text('FILIAL RECEBEDORA', 112, cardY + 6.5);
+    doc.setFontSize(leftTitleFontSize);
+    doc.setTextColor(15, 23, 42);
+    doc.text(leftTitleText, 16, leftY);
+    leftY += 6.5;
 
-    doc.setFontSize(9.5);
+    doc.setFontSize(8.5);
+    doc.setFont('Helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text('Protocolo ID:', 16, leftY);
     doc.setFont('Helvetica', 'bold');
     doc.setTextColor(15, 23, 42);
-    doc.text('NOME DA SUCURSAL:', 112, cardY + 14);
+    doc.setFontSize(idFontSize);
+    doc.text(splitDistId, 48, leftY);
+    leftY += Math.max(1, splitDistId.length) * 5;
+
+    doc.setFontSize(8.5);
+    doc.setFont('Helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text('Data Lançamento:', 16, leftY);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text(distDate, 48, leftY, { maxWidth: 50 });
+    leftY += 5;
+
+    doc.setFont('Helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text('Origem Remetente:', 16, leftY);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text('Almoxarifado / Estoque Central', 48, leftY, { maxWidth: 50 });
+    leftY += 5;
+
+    doc.setFont('Helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text('Modalidade:', 16, leftY);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text(distribution.type === 'epi' ? 'Termo EPI com Assinatura' : 'Comprovante Padrão de Entrega', 48, leftY, { maxWidth: 50 });
+
+    // Right Text
+    let rightY = cardY + 6.5;
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(rightTitleFontSize);
+    doc.setTextColor(6, 95, 70);
+    doc.text(rightTitleText, 112, rightY);
+    rightY += 6.5;
+
+    doc.setFontSize(8.5);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text('NOME DA SUCURSAL:', 112, rightY);
+    rightY += 4.5;
 
     doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(12);
+    doc.setFontSize(bFontSize);
     doc.setTextColor(6, 95, 70);
-    const branchName = branch?.name || 'Filial não identificada';
-    doc.text(branchName.toUpperCase(), 112, cardY + 20);
+    doc.text(splitBranch, 112, rightY);
+    rightY += Math.max(1, splitBranch.length) * 5;
 
-    doc.setFontSize(9);
+    doc.setFontSize(8.5);
     doc.setFont('Helvetica', 'normal');
     doc.setTextColor(15, 23, 42);
-    doc.text('Endereço / Local:', 112, cardY + 26);
+    doc.text('Endereço / Local:', 112, rightY);
     doc.setFont('Helvetica', 'bold');
     doc.setTextColor(15, 23, 42);
-    doc.text(branch?.location || 'Não cadastrada', 145, cardY + 26);
+    doc.setFontSize(locFontSize);
+    doc.text(splitLoc, 145, rightY);
+    rightY += Math.max(1, splitLoc.length) * 4.8;
 
+    doc.setFontSize(8.5);
     doc.setFont('Helvetica', 'normal');
     doc.setTextColor(15, 23, 42);
-    doc.text('Gerente Responsável:', 112, cardY + 31);
+    doc.text('Gerente Responsável:', 112, rightY);
     doc.setFont('Helvetica', 'bold');
     doc.setTextColor(15, 23, 42);
-    doc.text(recipientName, 145, cardY + 31);
+    doc.setFontSize(recipientFontSize);
+    doc.text(splitRecipient, 145, rightY);
 
     // Table Data
     const tableData: any[][] = [];
@@ -1527,7 +1885,7 @@ export function generateDistributionReceiptPDF(
 
     autoTable(doc, {
       startY: cardY + cardHeight + 5,
-      margin: { left: 12, right: 12 },
+      margin: { top: 43, bottom: 22, left: 12, right: 12 },
       head: [['Seq', 'Código', 'Descrição do Produto', 'Classificação', 'Unid', 'Qtd Entregue']],
       body: tableData,
       theme: 'striped',
@@ -1572,9 +1930,9 @@ export function generateDistributionReceiptPDF(
     yPos += boxHeight + 20;
 
     // Signatures
-    if (yPos > 245) {
+    if (yPos > 235) {
       doc.addPage();
-      yPos = 35;
+      yPos = 43;
     }
 
     doc.setDrawColor(15, 23, 42);
@@ -1604,11 +1962,20 @@ export function generateDistributionReceiptPDF(
     doc.text('Data Efetiva de Recebimento e Carimbo da Loja', 120, yPos + 9);
   });
 
+  // Apply brand header, logo, 1cm bands, and page numbers to all pages
+  applyBrandHeaderFooterToAllPages(
+    doc,
+    'COMPROVANTE DE ENTREGA & TERMO DE RECEBIMENTO',
+    'Confirmação de Recebimento de Mercadorias e Transferência Interna',
+    `#${distId}`,
+    companyLogo,
+    'RECEBIMENTO FILIAL',
+    'Comprovante de Entrega de Filial • Lojas Ramos'
+  );
+
   const fileName = selectedBranchId && selectedBranchId !== 'all'
     ? `comprovante_filial_ramos_${selectedBranchId}_dist_${distId}.pdf`
     : `comprovantes_filial_ramos_dist_${distId}.pdf`;
 
   doc.save(fileName);
 }
-
-

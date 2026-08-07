@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Search, ChevronDown, Check, X } from 'lucide-react';
 
 export interface SelectOption {
@@ -37,28 +38,85 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [popoverStyle, setPopoverStyle] = useState<React.CSSProperties>({});
+
   const containerRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const selectedOption = options.find(o => o.value === value);
 
-  // Close dropdown on click outside
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  // Recalculate fixed positioning for portal popover
+  const updatePosition = () => {
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
 
-  // Focus search input when dropdown opens
+    const placeAbove = spaceBelow < 280 && spaceAbove > spaceBelow;
+    const width = Math.max(rect.width, 240);
+    let left = rect.left;
+
+    if (left + width > window.innerWidth - 12) {
+      left = Math.max(12, window.innerWidth - width - 12);
+    }
+
+    if (placeAbove) {
+      setPopoverStyle({
+        position: 'fixed',
+        bottom: `${window.innerHeight - rect.top + 4}px`,
+        left: `${left}px`,
+        width: `${width}px`,
+        maxHeight: `${Math.min(320, spaceAbove - 12)}px`,
+        zIndex: 999999,
+      });
+    } else {
+      setPopoverStyle({
+        position: 'fixed',
+        top: `${rect.bottom + 4}px`,
+        left: `${left}px`,
+        width: `${width}px`,
+        maxHeight: `${Math.min(320, spaceBelow - 12)}px`,
+        zIndex: 999999,
+      });
+    }
+  };
+
+  // Manage open state, event listeners, focus and click outside
   useEffect(() => {
     if (isOpen) {
-      setTimeout(() => {
+      updatePosition();
+
+      const handleScrollOrResize = () => {
+        updatePosition();
+      };
+
+      const handleClickOutside = (e: MouseEvent) => {
+        const target = e.target as Node;
+        if (
+          containerRef.current &&
+          !containerRef.current.contains(target) &&
+          popoverRef.current &&
+          !popoverRef.current.contains(target)
+        ) {
+          setIsOpen(false);
+        }
+      };
+
+      window.addEventListener('resize', handleScrollOrResize);
+      window.addEventListener('scroll', handleScrollOrResize, true);
+      document.addEventListener('mousedown', handleClickOutside);
+
+      const timer = setTimeout(() => {
         inputRef.current?.focus();
       }, 50);
+
+      return () => {
+        clearTimeout(timer);
+        window.removeEventListener('resize', handleScrollOrResize);
+        window.removeEventListener('scroll', handleScrollOrResize, true);
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
     } else {
       setSearchQuery('');
     }
@@ -142,91 +200,97 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
         </div>
       </button>
 
-      {/* Popover list */}
-      {isOpen && (
-        <div className="absolute z-50 left-0 right-0 mt-1 bg-slate-900 border border-slate-700/80 rounded-xl shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150">
-          {/* Search input field */}
-          <div className="p-2 border-b border-slate-800 bg-slate-950/80 flex items-center gap-2">
-            <Search size={14} className="text-cyan-400 shrink-0 ml-1" />
-            <input
-              ref={inputRef}
-              type="text"
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              placeholder={searchPlaceholder}
-              className="w-full bg-transparent border-none text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-0 py-1"
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => setSearchQuery('')}
-                className="text-slate-500 hover:text-slate-200 p-1"
-              >
-                <X size={12} />
-              </button>
-            )}
-          </div>
+      {/* Popover list via React Portal */}
+      {isOpen &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            style={popoverStyle}
+            className="bg-slate-900 border border-slate-700/90 rounded-xl shadow-[0_10px_40px_rgba(0,0,0,0.8)] overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-150"
+          >
+            {/* Search input field */}
+            <div className="p-2 border-b border-slate-800 bg-slate-950/90 flex items-center gap-2 shrink-0">
+              <Search size={14} className="text-cyan-400 shrink-0 ml-1" />
+              <input
+                ref={inputRef}
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder={searchPlaceholder}
+                className="w-full bg-transparent border-none text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-0 py-1"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="text-slate-500 hover:text-slate-200 p-1"
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
 
-          {/* Search count indicator */}
-          <div className="px-3 py-1 bg-slate-950/40 border-b border-slate-800/50 flex items-center justify-between">
-            <span className="text-[9px] uppercase font-bold text-slate-500 tracking-wider">
-              {query ? `Filtro: "${searchQuery}"` : 'Opções'}
-            </span>
-            <span className="text-[9px] font-mono text-cyan-400">
-              {filteredOptions.length} encontrado(s)
-            </span>
-          </div>
+            {/* Search count indicator */}
+            <div className="px-3 py-1 bg-slate-950/60 border-b border-slate-800/60 flex items-center justify-between shrink-0">
+              <span className="text-[9px] uppercase font-bold text-slate-500 tracking-wider">
+                {query ? `Filtro: "${searchQuery}"` : 'Opções'}
+              </span>
+              <span className="text-[9px] font-mono text-cyan-400 font-bold">
+                {filteredOptions.length} encontrado(s)
+              </span>
+            </div>
 
-          {/* Options list */}
-          <div className="max-h-56 overflow-y-auto p-1 custom-scrollbar space-y-0.5">
-            {displayOptions.length > 0 ? (
-              displayOptions.map(option => {
-                const isSelected = option.value === value;
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    disabled={option.disabled}
-                    onClick={() => handleSelect(option.value)}
-                    className={`w-full text-left px-3 py-2 rounded-lg text-xs flex items-center justify-between transition-all ${
-                      isSelected
-                        ? 'bg-cyan-500/15 text-cyan-300 font-bold border border-cyan-500/30'
-                        : 'text-slate-200 hover:bg-slate-800 hover:text-white'
-                    } ${option.disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
-                  >
-                    <div className="flex flex-col gap-0.5 truncate pr-2">
-                      <div className="flex items-center gap-2 truncate">
-                        {option.code && (
-                          <span className="text-[9px] font-mono text-cyan-400 bg-cyan-950 px-1 rounded uppercase">
-                            #{option.code}
+            {/* Options list */}
+            <div className="flex-1 overflow-y-auto p-1 custom-scrollbar space-y-0.5 min-h-0">
+              {displayOptions.length > 0 ? (
+                displayOptions.map(option => {
+                  const isSelected = option.value === value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      disabled={option.disabled}
+                      onClick={() => handleSelect(option.value)}
+                      className={`w-full text-left px-3 py-2 rounded-lg text-xs flex items-center justify-between transition-all ${
+                        isSelected
+                          ? 'bg-cyan-500/15 text-cyan-300 font-bold border border-cyan-500/30'
+                          : 'text-slate-200 hover:bg-slate-800 hover:text-white'
+                      } ${option.disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
+                    >
+                      <div className="flex flex-col gap-0.5 truncate pr-2">
+                        <div className="flex items-center gap-2 truncate">
+                          {option.code && (
+                            <span className="text-[9px] font-mono text-cyan-400 bg-cyan-950 px-1 rounded uppercase">
+                              #{option.code}
+                            </span>
+                          )}
+                          <span className="truncate">{option.label}</span>
+                        </div>
+                        {option.sublabel && (
+                          <span className="text-[10px] text-slate-400 truncate font-normal">
+                            {option.sublabel}
                           </span>
                         )}
-                        <span className="truncate">{option.label}</span>
                       </div>
-                      {option.sublabel && (
-                        <span className="text-[10px] text-slate-400 truncate font-normal">
-                          {option.sublabel}
-                        </span>
-                      )}
-                    </div>
-                    {isSelected && <Check size={14} className="text-cyan-400 shrink-0" />}
-                  </button>
-                );
-              })
-            ) : (
-              <div className="p-4 text-center text-slate-500 text-xs">
-                {emptyMessage}
-              </div>
-            )}
+                      {isSelected && <Check size={14} className="text-cyan-400 shrink-0" />}
+                    </button>
+                  );
+                })
+              ) : (
+                <div className="p-4 text-center text-slate-500 text-xs">
+                  {emptyMessage}
+                </div>
+              )}
 
-            {!query && options.length > maxDisplayWhenEmpty && (
-              <div className="px-3 py-2 text-center text-[10px] text-slate-500 border-t border-slate-800/60 bg-slate-950/30 font-medium">
-                Exibindo as primeiras {maxDisplayWhenEmpty} de {options.length} opções. Digite no campo acima para filtrar.
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+              {!query && options.length > maxDisplayWhenEmpty && (
+                <div className="px-3 py-2 text-center text-[10px] text-slate-500 border-t border-slate-800/60 bg-slate-950/40 font-medium shrink-0">
+                  Exibindo as primeiras {maxDisplayWhenEmpty} de {options.length} opções. Digite no campo acima para filtrar.
+                </div>
+              )}
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 };

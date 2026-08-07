@@ -18,7 +18,7 @@ import { parseExcelFile, downloadExcelTemplate } from '../utils/excelUtils';
 import { useRamoxContext } from '../services/RamoxContextComponent';
 import { Product, User, Branch } from '../types';
 
-export type ImportType = 'products' | 'users' | 'branches';
+export type ImportType = 'products' | 'users' | 'branches' | 'limits';
 
 interface ImportExcelModalProps {
   type: ImportType;
@@ -37,7 +37,7 @@ export default function ImportExcelModal({
   className = '',
   onSuccess,
 }: ImportExcelModalProps) {
-  const { bulkAddProducts, bulkAddUsers, bulkAddBranches, branches: existingBranches } = useRamoxContext();
+  const { bulkAddProducts, bulkAddUsers, bulkAddBranches, branches: existingBranches, products, branchLimits, saveBranchLimits } = useRamoxContext();
 
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
@@ -62,6 +62,8 @@ export default function ImportExcelModal({
         return 'Importar Cadastro de Usuários via Excel';
       case 'branches':
         return 'Importar Cadastro de Filiais via Excel';
+      case 'limits':
+        return 'Importar Cotas e Limites de Filiais via Excel';
     }
   };
 
@@ -73,6 +75,8 @@ export default function ImportExcelModal({
         return 'Carregue uma planilha (.xlsx ou .csv) contendo os usuários do sistema com nome, email, perfil e filial.';
       case 'branches':
         return 'Carregue uma planilha (.xlsx ou .csv) contendo a lista de filiais com nome, localização e responsável.';
+      case 'limits':
+        return 'Carregue uma planilha (.xlsx ou .csv) com as cotas mensais de produtos por filial e/ou verba máxima por pedido.';
     }
   };
 
@@ -112,6 +116,21 @@ export default function ImportExcelModal({
         ],
         'modelo_importacao_filiais.xlsx',
         'Filiais'
+      );
+    } else if (type === 'limits') {
+      const sampleBranch = existingBranches[0];
+      const sampleProd = products[0];
+      downloadExcelTemplate(
+        [
+          { header: 'Codigo_Filial', example: sampleBranch?.code || 'FIL-001' },
+          { header: 'Nome_Filial', example: sampleBranch?.name || 'Lojas Ramos - Filial Matriz' },
+          { header: 'Codigo_Produto', example: sampleProd?.code || 'PROD-101' },
+          { header: 'Nome_Produto', example: sampleProd?.name || 'Papel A4 Sulfite Report 75g' },
+          { header: 'Cota_Mensal_Unidades', example: '20' },
+          { header: 'Verba_Maxima_Pedido', example: '5000.00' },
+        ],
+        'modelo_importacao_cotas_limites.xlsx',
+        'CotasELimites'
       );
     }
     toast.info('Planilha modelo baixada!');
@@ -218,6 +237,40 @@ export default function ImportExcelModal({
             location: location || 'Não informada',
             manager: manager || 'A definir',
           };
+        } else if (type === 'limits') {
+          const branchInput = String(
+            row['Codigo_Filial'] || row['codigo_filial'] || row['Filial'] || row['filial'] || row['Nome_Filial'] || row['nome_filial'] || ''
+          ).trim();
+          const productInput = String(
+            row['Codigo_Produto'] || row['codigo_produto'] || row['Produto'] || row['produto'] || row['Nome_Produto'] || row['nome_produto'] || ''
+          ).trim();
+          const quotaVal = parseInt(String(row['Cota_Mensal_Unidades'] || row['Cota'] || row['cota'] || row['Cota_Mensal'] || '0'), 10);
+          const rawBudgetStr = String(row['Verba_Maxima_Pedido'] || row['Verba'] || row['verba'] || '').trim();
+          const budgetVal = rawBudgetStr ? parseFloat(rawBudgetStr.replace(',', '.')) : undefined;
+
+          const targetBranch = existingBranches.find(
+            (b) => b.id === branchInput || b.code?.toLowerCase() === branchInput.toLowerCase() || b.name.toLowerCase().includes(branchInput.toLowerCase())
+          );
+          const targetProduct = products.find(
+            (p) => p.id === productInput || p.code?.toLowerCase() === productInput.toLowerCase() || p.name.toLowerCase().includes(productInput.toLowerCase())
+          );
+
+          if (!targetBranch) {
+            isValid = false;
+            reason = `Filial "${branchInput}" não encontrada.`;
+          } else if (!targetProduct && !rawBudgetStr) {
+            isValid = false;
+            reason = `Produto "${productInput}" não encontrado.`;
+          }
+
+          processedData = {
+            branchId: targetBranch?.id || '',
+            branchName: targetBranch?.name || branchInput || 'N/A',
+            productId: targetProduct?.id || '',
+            productName: targetProduct?.name || productInput || '(Apenas Verba)',
+            quota: isNaN(quotaVal) ? 0 : Math.max(0, quotaVal),
+            maxBudget: budgetVal !== undefined && !isNaN(budgetVal) ? Math.max(0, budgetVal) : undefined,
+          };
         }
 
         if (!isValid) invalids++;
@@ -279,6 +332,34 @@ export default function ImportExcelModal({
       }));
       bulkAddBranches(formattedBranches);
       toast.success(`${formattedBranches.length} filiais cadastradas com sucesso!`);
+    } else if (type === 'limits') {
+      const branchUpdates: { [branchId: string]: { budget: number; productLimits: { [pId: string]: number } } } = {};
+
+      validRows.forEach((row) => {
+        if (!row.branchId) return;
+        if (!branchUpdates[row.branchId]) {
+          const existing = branchLimits?.find((l) => l.branchId === row.branchId);
+          branchUpdates[row.branchId] = {
+            budget: existing?.maxOrderBudget || 0,
+            productLimits: { ...(existing?.productMonthlyLimits || {}) },
+          };
+        }
+
+        if (row.productId) {
+          branchUpdates[row.branchId].productLimits[row.productId] = row.quota;
+        }
+        if (row.maxBudget !== undefined && !isNaN(row.maxBudget)) {
+          branchUpdates[row.branchId].budget = row.maxBudget;
+        }
+      });
+
+      let branchCount = 0;
+      Object.entries(branchUpdates).forEach(([bId, update]) => {
+        saveBranchLimits(bId, update.budget, update.productLimits);
+        branchCount++;
+      });
+
+      toast.success(`Cotas e verbas atualizadas para ${branchCount} filial(ais) com sucesso!`);
     }
 
     setOpen(false);
@@ -413,6 +494,14 @@ export default function ImportExcelModal({
                           <TableHead className="text-[11px]">Gerente</TableHead>
                         </>
                       )}
+                      {type === 'limits' && (
+                        <>
+                          <TableHead className="text-[11px]">Filial</TableHead>
+                          <TableHead className="text-[11px]">Produto</TableHead>
+                          <TableHead className="text-[11px] text-right">Cota Mensal</TableHead>
+                          <TableHead className="text-[11px] text-right">Verba Pedido</TableHead>
+                        </>
+                      )}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -467,6 +556,19 @@ export default function ImportExcelModal({
                             <TableCell className="text-xs font-bold">{row.data.name || '-'}</TableCell>
                             <TableCell className="text-xs">{row.data.location}</TableCell>
                             <TableCell className="text-xs font-medium text-slate-700">{row.data.manager}</TableCell>
+                          </>
+                        )}
+
+                        {type === 'limits' && (
+                          <>
+                            <TableCell className="text-xs font-bold text-slate-800">{row.data.branchName}</TableCell>
+                            <TableCell className="text-xs text-slate-700 font-medium">{row.data.productName}</TableCell>
+                            <TableCell className="text-xs text-right font-mono font-bold text-cyan-700">
+                              {row.data.quota > 0 ? `${row.data.quota} un` : 'Ilimitado'}
+                            </TableCell>
+                            <TableCell className="text-xs text-right font-mono text-slate-700">
+                              {row.data.maxBudget !== undefined ? `R$ ${row.data.maxBudget.toFixed(2)}` : '-'}
+                            </TableCell>
                           </>
                         )}
                       </TableRow>

@@ -4,11 +4,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { LogIn, Eye, EyeOff, Lock } from 'lucide-react';
+import { LogIn, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function Login() {
-  const { login, users } = useRamoxContext();
+  const { login } = useRamoxContext();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -20,12 +20,6 @@ export default function Login() {
     } else {
       toast.error('E-mail ou senha incorretos.');
     }
-  };
-
-  const selectTestUser = (u: any) => {
-    setEmail(u.email);
-    setPassword(u.password || '123');
-    toast.info(`Dados do usuário ${u.name} preenchidos!`);
   };
 
   return (
@@ -78,31 +72,6 @@ export default function Login() {
             <LogIn className="mr-2 h-4 w-4" /> Entrar no Sistema
           </Button>
         </form>
-
-        <div className="mt-8 pt-6 border-t border-slate-100">
-          <p className="text-xs text-slate-400 uppercase tracking-widest font-bold mb-4 text-center">Contas de Teste Rápido</p>
-          <div className="grid grid-cols-1 gap-2">
-            {users
-              .filter(u => u.name.toLowerCase().includes('natanael') || u.email.toLowerCase().includes('natanael'))
-              .map(u => (
-              <button
-                key={u.id}
-                type="button"
-                onClick={() => selectTestUser(u)}
-                className="text-left p-3 rounded-lg bg-slate-50 hover:bg-slate-100 transition-colors border border-slate-100 flex items-center justify-between"
-              >
-                <div>
-                  <p className="text-sm font-bold text-slate-700">{u.name}</p>
-                  <p className="text-xs text-slate-500">{u.email} • <span className="capitalize">{u.role}</span></p>
-                </div>
-                <div className="text-right flex items-center gap-1.5 bg-slate-200/60 text-slate-700 px-2 py-1 rounded text-xs font-mono">
-                  <Lock size={12} className="text-slate-400" />
-                  <span>{u.password || '123'}</span>
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
       </CardContent>
     </Card>
   );

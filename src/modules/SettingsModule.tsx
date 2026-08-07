@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useRamoxContext } from '../services/RamoxContextComponent';
+import { mockDb } from '../services/mockDb';
 import ExportExcelModal from '../components/ExportExcelModal';
 import ImportExcelModal from '../components/ImportExcelModal';
 import { SearchableSelect } from '../components/SearchableSelect';
@@ -1007,6 +1008,20 @@ DO $$ BEGIN CREATE POLICY "Allow public read-write for branch_orders" ON public.
                     >
                       <Database size={15} className="mr-1.5 text-emerald-600" />
                       {isSyncingSupabase ? 'Sincronizando...' : 'Enviar Todos os Dados Locais para o Supabase'}
+                    </Button>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        if (confirm('Deseja limpar o cache local e recarregar os dados limpos do Supabase?')) {
+                          mockDb.clearCache();
+                        }
+                      }}
+                      className="border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-800 font-bold text-xs"
+                    >
+                      <Trash2 size={15} className="mr-1.5 text-rose-600" />
+                      Limpar Cache Local e Recarregar
                     </Button>
                   </div>
                 </form>

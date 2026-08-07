@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { mockDb } from './mockDb';
+import React, { useState, useEffect, useRef } from 'react';
+import { mockDb, isRecordDeleted } from './mockDb';
 import { Product, Supplier, PurchaseOrder, Branch, BranchOrder, User, UserRole, Distribution, DistributionType, BranchLimits } from '../types';
 import { getSupabase } from '../lib/supabase';
 
@@ -71,6 +71,7 @@ export function markAsDeleted(...ids: (string | undefined | null)[]) {
 
 export function isDeleted(id: string | undefined | null): boolean {
   if (!id) return false;
+  if (isRecordDeleted(id)) return true;
   const set = getDeletedIds();
   const clean = id.toString().trim().toLowerCase();
   if (set.has(clean)) return true;
@@ -81,12 +82,16 @@ export function isDeleted(id: string | undefined | null): boolean {
 export function useRamox() {
   const [state, setState] = useState(mockDb.get());
   const [globalSearch, setGlobalSearch] = useState('');
+  const isInitialLoadCompleteRef = useRef(false);
 
   // Initial fetch from Supabase if connected
   useEffect(() => {
     async function loadFromSupabase() {
       const client = getSupabase();
-      if (!client) return;
+      if (!client) {
+        isInitialLoadCompleteRef.current = true;
+        return;
+      }
 
       try {
         const [
@@ -110,7 +115,7 @@ export function useRamox() {
 
           if (!errBranches && Array.isArray(dbBranches)) {
             updated.branches = dbBranches
-              .filter((b: any) => b && !isDeleted(b.id))
+              .filter((b: any) => b && !isDeleted(b.id) && !isDeleted(b.name))
               .map((b: any) => ({
                 id: b.id,
                 name: b.name,
@@ -121,7 +126,7 @@ export function useRamox() {
 
           if (!errSuppliers && Array.isArray(dbSuppliers)) {
             updated.suppliers = dbSuppliers
-              .filter((s: any) => s && !isDeleted(s.id))
+              .filter((s: any) => s && !isDeleted(s.id) && !isDeleted(s.code) && !isDeleted(s.name))
               .map((s: any) => ({
                 id: s.id,
                 name: s.name,
@@ -133,7 +138,7 @@ export function useRamox() {
 
           if (!errProducts && Array.isArray(dbProducts)) {
             updated.products = dbProducts
-              .filter((p: any) => p && !isDeleted(p.id) && !isDeleted(p.code))
+              .filter((p: any) => p && !isDeleted(p.id) && !isDeleted(p.code) && !isDeleted(p.name))
               .map((p: any) => ({
                 id: p.id,
                 name: p.name,
@@ -148,8 +153,8 @@ export function useRamox() {
           }
 
           if (!errUsers && Array.isArray(dbUsers)) {
-            const fetchedUsers = dbUsers
-              .filter((u: any) => u && u.id && !isDeleted(u.id) && !isDeleted(u.email))
+            updated.users = dbUsers
+              .filter((u: any) => u && u.id && !isDeleted(u.id) && !isDeleted(u.email) && !isDeleted(u.name))
               .map((u: any) => ({
                 id: u.id,
                 name: u.name || 'Usuário',
@@ -158,17 +163,6 @@ export function useRamox() {
                 password: u.password || '123',
                 branchId: u.branch_id || undefined
               }));
-
-            const existingEmails = new Set(
-              fetchedUsers
-                .filter((u: any) => u.email)
-                .map((u: any) => u.email.toLowerCase().trim())
-            );
-            const localOnlyUsers = prev.users.filter(
-              u => u && u.email && !isDeleted(u.id) && !isDeleted(u.email) && !existingEmails.has(u.email.toLowerCase().trim())
-            );
-
-            updated.users = [...fetchedUsers, ...localOnlyUsers];
           }
 
           if (!errOrders && Array.isArray(dbBranchOrders)) {
@@ -185,10 +179,14 @@ export function useRamox() {
                 approvedAt: o.approved_at || o.approvedAt || undefined
               }));
           }
+
+          mockDb.save(updated);
           return updated;
         });
       } catch (e) {
         console.warn('Erro ao carregar dados do Supabase:', e);
+      } finally {
+        isInitialLoadCompleteRef.current = true;
       }
     }
 
@@ -199,13 +197,18 @@ export function useRamox() {
   useEffect(() => {
     mockDb.save(state);
 
+    if (!isInitialLoadCompleteRef.current) {
+      return;
+    }
+
     const client = getSupabase();
     if (client) {
       // Background sync to Supabase
       const sync = async () => {
         try {
-          if (state.branches.length > 0) {
-            const payload = state.branches.map(b => ({
+          const validBranches = state.branches.filter(b => b && !isDeleted(b.id) && !isDeleted(b.name));
+          if (validBranches.length > 0) {
+            const payload = validBranches.map(b => ({
               id: toValidUUID(b.id),
               name: b.name,
               location: b.location || '',
@@ -214,8 +217,9 @@ export function useRamox() {
             await client.from('branches').upsert(payload);
           }
 
-          if (state.suppliers.length > 0) {
-            const payload = state.suppliers.map(s => ({
+          const validSuppliers = state.suppliers.filter(s => s && !isDeleted(s.id) && !isDeleted(s.code) && !isDeleted(s.name));
+          if (validSuppliers.length > 0) {
+            const payload = validSuppliers.map(s => ({
               id: toValidUUID(s.id),
               name: s.name,
               code: s.code,
@@ -225,8 +229,9 @@ export function useRamox() {
             await client.from('suppliers').upsert(payload);
           }
 
-          if (state.products.length > 0) {
-            const payload = state.products.map(p => ({
+          const validProducts = state.products.filter(p => p && !isDeleted(p.id) && !isDeleted(p.code) && !isDeleted(p.name));
+          if (validProducts.length > 0) {
+            const payload = validProducts.map(p => ({
               id: toValidUUID(p.id),
               name: p.name,
               code: p.code,
@@ -240,8 +245,9 @@ export function useRamox() {
             await client.from('products').upsert(payload);
           }
 
-          if (state.users.length > 0) {
-            const payload = state.users.map(u => ({
+          const validUsers = state.users.filter(u => u && !isDeleted(u.id) && !isDeleted(u.email) && !isDeleted(u.name));
+          if (validUsers.length > 0) {
+            const payload = validUsers.map(u => ({
               id: toValidUUID(u.id),
               name: u.name,
               email: u.email,
@@ -249,7 +255,6 @@ export function useRamox() {
               branch_id: u.branchId ? toValidUUID(u.branchId) : null
             }));
 
-            // Upsert individually to guarantee each user (like CARLOS PEREIRA) is saved
             for (const userRow of payload) {
               const { error: singleErr } = await client.from('users').upsert(userRow, { onConflict: 'email' });
               if (singleErr) {
@@ -258,8 +263,9 @@ export function useRamox() {
             }
           }
 
-          if (state.branchOrders.length > 0) {
-            const payload = state.branchOrders.map(o => ({
+          const validOrders = state.branchOrders.filter(o => o && !isDeleted(o.id));
+          if (validOrders.length > 0) {
+            const payload = validOrders.map(o => ({
               id: toValidUUID(o.id),
               branch_id: toValidUUID(o.branchId),
               status: o.status,
@@ -312,14 +318,18 @@ export function useRamox() {
   };
 
   const deleteProduct = (id: string) => {
-    markAsDeleted(id);
+    const targetProduct = state.products.find(p => p.id === id || p.code === id || p.name === id);
     const targetId = toValidUUID(id);
-    markAsDeleted(targetId);
+
+    markAsDeleted(id, targetId);
+    if (targetProduct) {
+      markAsDeleted(targetProduct.id, targetProduct.code, targetProduct.name);
+    }
 
     setState(prev => {
       const updated = {
         ...prev,
-        products: prev.products.filter(p => p.id !== id && p.id !== targetId)
+        products: prev.products.filter(p => p.id !== id && p.id !== targetId && (targetProduct ? p.code !== targetProduct.code && p.name !== targetProduct.name : true))
       };
       mockDb.save(updated);
       return updated;
@@ -329,9 +339,13 @@ export function useRamox() {
     if (client) {
       (async () => {
         try {
-          const { error } = await client.from('products').delete().eq('id', targetId);
-          if (error) {
-            await client.from('products').delete().eq('id', id);
+          await client.from('products').delete().eq('id', targetId);
+          await client.from('products').delete().eq('id', id);
+          if (targetProduct?.code) {
+            await client.from('products').delete().eq('code', targetProduct.code);
+          }
+          if (targetProduct?.name) {
+            await client.from('products').delete().eq('name', targetProduct.name);
           }
         } catch (e) {
           console.warn('Supabase delete product err:', e);
@@ -354,14 +368,18 @@ export function useRamox() {
   };
 
   const deleteSupplier = (id: string) => {
-    markAsDeleted(id);
+    const targetSupplier = state.suppliers.find(s => s.id === id || s.code === id || s.name === id);
     const targetId = toValidUUID(id);
-    markAsDeleted(targetId);
+
+    markAsDeleted(id, targetId);
+    if (targetSupplier) {
+      markAsDeleted(targetSupplier.id, targetSupplier.code, targetSupplier.name);
+    }
 
     setState(prev => {
       const updated = {
         ...prev,
-        suppliers: prev.suppliers.filter(s => s.id !== id && s.id !== targetId)
+        suppliers: prev.suppliers.filter(s => s.id !== id && s.id !== targetId && (targetSupplier ? s.code !== targetSupplier.code && s.name !== targetSupplier.name : true))
       };
       mockDb.save(updated);
       return updated;
@@ -371,9 +389,13 @@ export function useRamox() {
     if (client) {
       (async () => {
         try {
-          const { error } = await client.from('suppliers').delete().eq('id', targetId);
-          if (error) {
-            await client.from('suppliers').delete().eq('id', id);
+          await client.from('suppliers').delete().eq('id', targetId);
+          await client.from('suppliers').delete().eq('id', id);
+          if (targetSupplier?.code) {
+            await client.from('suppliers').delete().eq('code', targetSupplier.code);
+          }
+          if (targetSupplier?.name) {
+            await client.from('suppliers').delete().eq('name', targetSupplier.name);
           }
         } catch (e) {
           console.warn('Supabase delete supplier err:', e);
@@ -611,18 +633,18 @@ export function useRamox() {
   };
 
   const deleteUser = (id: string) => {
-    markAsDeleted(id);
+    const targetUser = state.users.find(u => u.id === id || u.email === id || u.name === id);
     const targetId = toValidUUID(id);
-    markAsDeleted(targetId);
+
+    markAsDeleted(id, targetId);
+    if (targetUser) {
+      markAsDeleted(targetUser.id, targetUser.email, targetUser.name);
+    }
 
     setState(prev => {
-      const targetUser = prev.users.find(u => u.id === id || u.id === targetId);
-      if (targetUser && targetUser.email) {
-        markAsDeleted(targetUser.email);
-      }
       const updated = {
         ...prev,
-        users: prev.users.filter(u => u.id !== id && u.id !== targetId)
+        users: prev.users.filter(u => u.id !== id && u.id !== targetId && (targetUser ? u.email !== targetUser.email && u.name !== targetUser.name : true))
       };
       mockDb.save(updated);
       return updated;
@@ -632,9 +654,13 @@ export function useRamox() {
     if (client) {
       (async () => {
         try {
-          const { error } = await client.from('users').delete().eq('id', targetId);
-          if (error) {
-            await client.from('users').delete().eq('id', id);
+          await client.from('users').delete().eq('id', targetId);
+          await client.from('users').delete().eq('id', id);
+          if (targetUser?.email) {
+            await client.from('users').delete().eq('email', targetUser.email);
+          }
+          if (targetUser?.name) {
+            await client.from('users').delete().eq('name', targetUser.name);
           }
         } catch (e) {
           console.warn('Supabase delete user err:', e);
@@ -658,14 +684,18 @@ export function useRamox() {
   };
 
   const deleteBranch = (id: string) => {
-    markAsDeleted(id);
+    const targetBranch = state.branches.find(b => b.id === id || b.name === id);
     const targetId = toValidUUID(id);
-    markAsDeleted(targetId);
+
+    markAsDeleted(id, targetId);
+    if (targetBranch) {
+      markAsDeleted(targetBranch.id, targetBranch.name);
+    }
 
     setState(prev => {
       const updated = {
         ...prev,
-        branches: prev.branches.filter(b => b.id !== id && b.id !== targetId)
+        branches: prev.branches.filter(b => b.id !== id && b.id !== targetId && (targetBranch ? b.name !== targetBranch.name : true))
       };
       mockDb.save(updated);
       return updated;
@@ -675,9 +705,10 @@ export function useRamox() {
     if (client) {
       (async () => {
         try {
-          const { error } = await client.from('branches').delete().eq('id', targetId);
-          if (error) {
-            await client.from('branches').delete().eq('id', id);
+          await client.from('branches').delete().eq('id', targetId);
+          await client.from('branches').delete().eq('id', id);
+          if (targetBranch?.name) {
+            await client.from('branches').delete().eq('name', targetBranch.name);
           }
         } catch (e) {
           console.warn('Supabase delete branch err:', e);

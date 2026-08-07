@@ -71,7 +71,7 @@ const initialState: DbState = {
 
 const DELETED_KEY = 'ramox_deleted_ids_v1';
 
-function isRecordDeleted(id: string | undefined | null): boolean {
+export function isRecordDeleted(id: string | undefined | null): boolean {
   if (!id) return false;
   try {
     if (typeof window === 'undefined') return false;
@@ -79,10 +79,17 @@ function isRecordDeleted(id: string | undefined | null): boolean {
     if (!raw) return false;
     const set = new Set(JSON.parse(raw));
     const clean = id.toString().toLowerCase().trim();
-    return set.has(clean);
+    if (set.has(clean)) return true;
+
+    // Standard static ID mappings
+    if (clean === '1' && set.has('88888888-8888-8888-8888-888888888888')) return true;
+    if (clean === '2' && set.has('99999999-9999-9999-9999-999999999999')) return true;
+    if (clean === '3' && set.has('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa')) return true;
+    if (clean === '4' && set.has('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb')) return true;
   } catch (e) {
     return false;
   }
+  return false;
 }
 
 export const mockDb = {
@@ -91,22 +98,22 @@ export const mockDb = {
       const data = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null;
       if (!data) {
         if (typeof window !== 'undefined') {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(initialState));
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...initialState, _initialized: true }));
         }
         return initialState;
       }
       const parsed = JSON.parse(data);
       if (!parsed || typeof parsed !== 'object') {
         if (typeof window !== 'undefined') {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(initialState));
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...initialState, _initialized: true }));
         }
         return initialState;
       }
       
       const isInitialized = Boolean(parsed && parsed._initialized);
 
-      const loadedUsers = (Array.isArray(parsed.users) ? parsed.users : initialState.users)
-        .filter((u: any) => u && !isRecordDeleted(u.id) && !isRecordDeleted(u.email))
+      const loadedUsers = (Array.isArray(parsed.users) ? parsed.users : (isInitialized ? [] : initialState.users))
+        .filter((u: any) => u && !isRecordDeleted(u.id) && !isRecordDeleted(u.email) && !isRecordDeleted(u.name))
         .map((u: any) => ({
           ...u,
           password: u?.password || '123'
@@ -114,14 +121,14 @@ export const mockDb = {
 
       const loadedClassifications = (Array.isArray(parsed.productClassifications) 
         ? parsed.productClassifications 
-        : [...initialState.productClassifications]).filter((c: string) => !isRecordDeleted(c));
+        : (isInitialized ? [] : [...initialState.productClassifications])).filter((c: string) => !isRecordDeleted(c));
       
       if (!isInitialized && !loadedClassifications.includes('EPIs')) {
         loadedClassifications.push('EPIs');
       }
 
-      const loadedProducts = (Array.isArray(parsed.products) ? parsed.products : [...initialState.products])
-        .filter((p: any) => p && !isRecordDeleted(p.id) && !isRecordDeleted(p.code));
+      const loadedProducts = (Array.isArray(parsed.products) ? parsed.products : (isInitialized ? [] : [...initialState.products]))
+        .filter((p: any) => p && !isRecordDeleted(p.id) && !isRecordDeleted(p.code) && !isRecordDeleted(p.name));
 
       // Only add default EPIs if database has never been initialized
       if (!isInitialized) {
@@ -135,11 +142,11 @@ export const mockDb = {
         }
       }
 
-      const loadedBranches = (Array.isArray(parsed.branches) ? parsed.branches : initialState.branches)
-        .filter((b: any) => b && !isRecordDeleted(b.id));
+      const loadedBranches = (Array.isArray(parsed.branches) ? parsed.branches : (isInitialized ? [] : initialState.branches))
+        .filter((b: any) => b && !isRecordDeleted(b.id) && !isRecordDeleted(b.name));
 
-      const loadedSuppliers = (Array.isArray(parsed.suppliers) ? parsed.suppliers : initialState.suppliers)
-        .filter((s: any) => s && !isRecordDeleted(s.id));
+      const loadedSuppliers = (Array.isArray(parsed.suppliers) ? parsed.suppliers : (isInitialized ? [] : initialState.suppliers))
+        .filter((s: any) => s && !isRecordDeleted(s.id) && !isRecordDeleted(s.code) && !isRecordDeleted(s.name));
 
       const loadedBranchOrders = (Array.isArray(parsed.branchOrders) ? parsed.branchOrders : [])
         .filter((o: any) => o && !isRecordDeleted(o.id));
@@ -187,11 +194,22 @@ export const mockDb = {
   reset: () => {
     try {
       if (typeof window !== 'undefined') {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(initialState));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...initialState, _initialized: true }));
         window.location.reload();
       }
     } catch (e) {
       console.error('Error resetting localStorage:', e);
+    }
+  },
+  clearCache: () => {
+    try {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem(DELETED_KEY);
+        window.location.reload();
+      }
+    } catch (e) {
+      console.error('Error clearing cache:', e);
     }
   }
 };

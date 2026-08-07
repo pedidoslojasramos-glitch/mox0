@@ -15,6 +15,7 @@ import {
   Download,
   Play,
   Eye,
+  EyeOff,
   Tag,
   Trash2,
   Database,
@@ -323,6 +324,7 @@ DO $$ BEGIN CREATE POLICY "Allow public read-write for branch_orders" ON public.
   // User editing state
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [isEditUserOpen, setIsEditUserOpen] = useState(false);
+  const [showEditPassword, setShowEditPassword] = useState(false);
   const [editUserData, setEditUserData] = useState({
     name: '',
     email: '',
@@ -334,32 +336,43 @@ DO $$ BEGIN CREATE POLICY "Allow public read-write for branch_orders" ON public.
   const handleOpenEditUser = (u: User) => {
     setEditingUser(u);
     setEditUserData({
-      name: u.name,
-      email: u.email,
-      password: u.password || '',
-      role: u.role,
+      name: u.name || '',
+      email: u.email || '',
+      password: u.password || '123456',
+      role: u.role || 'branch',
       branchId: u.branchId || ''
     });
+    setShowEditPassword(false);
     setIsEditUserOpen(true);
   };
 
   const handleSaveEditUser = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingUser) return;
-    if (!editUserData.name || !editUserData.email) {
-      toast.error('Preencha os campos obrigatórios');
+    if (!editUserData.name.trim()) {
+      toast.error('Informe o nome do usuário');
       return;
     }
+    if (!editUserData.email.trim()) {
+      toast.error('Informe o e-mail do usuário');
+      return;
+    }
+
+    const updatedBranchId = editUserData.role === 'branch' 
+      ? editUserData.branchId 
+      : (editUserData.branchId || '');
+
     updateUser(editingUser.id, {
-      name: editUserData.name,
-      email: editUserData.email,
-      password: editUserData.password || '123456',
+      name: editUserData.name.trim(),
+      email: editUserData.email.trim(),
+      password: editUserData.password ? editUserData.password.trim() : '123456',
       role: editUserData.role,
-      branchId: editUserData.role === 'branch' ? editUserData.branchId : ''
+      branchId: updatedBranchId
     });
+
     setIsEditUserOpen(false);
     setEditingUser(null);
-    toast.success('Usuário atualizado com sucesso!');
+    toast.success(`Usuário "${editUserData.name}" atualizado com sucesso! (Nome, Senha, Cargo e Filial salvos)`);
   };
 
   // Branch creation state
@@ -780,86 +793,106 @@ DO $$ BEGIN CREATE POLICY "Allow public read-write for branch_orders" ON public.
                   Editar Usuário
                 </DialogTitle>
                 <DialogDescription>
-                  Altere os dados de cadastro e permissões do usuário selecionado.
+                  Altere o nome, e-mail, senha de acesso, nível de acesso e filial vinculada.
                 </DialogDescription>
               </DialogHeader>
 
               <form onSubmit={handleSaveEditUser} className="space-y-4 py-2">
                 <div className="space-y-2">
-                  <Label className="text-slate-700">Nome Completo</Label>
+                  <Label className="text-slate-700 font-semibold">Nome Completo</Label>
                   <Input 
                     value={editUserData.name} 
                     onChange={e => setEditUserData({...editUserData, name: e.target.value})} 
                     placeholder="Ex: Carlos Oliveira"
+                    className="border-slate-300 focus:border-brand-500"
+                    required
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="text-slate-700">E-mail (Login)</Label>
+                  <Label className="text-slate-700 font-semibold">E-mail (Login)</Label>
                   <Input 
                     type="email"
                     value={editUserData.email} 
                     onChange={e => setEditUserData({...editUserData, email: e.target.value})} 
                     placeholder="carlos@empresa.com"
+                    className="border-slate-300 focus:border-brand-500"
+                    required
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="text-slate-700">Senha de Acesso</Label>
-                  <Input 
-                    type="text"
-                    value={editUserData.password} 
-                    onChange={e => setEditUserData({...editUserData, password: e.target.value})} 
-                    placeholder="Ex: 123456"
-                  />
+                  <Label className="text-slate-700 font-semibold">Senha de Acesso</Label>
+                  <div className="relative">
+                    <Input 
+                      type={showEditPassword ? "text" : "password"}
+                      value={editUserData.password} 
+                      onChange={e => setEditUserData({...editUserData, password: e.target.value})} 
+                      placeholder="Nova senha..."
+                      className="pr-10 border-slate-300 focus:border-brand-500 font-mono text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowEditPassword(!showEditPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+                      title={showEditPassword ? "Ocultar Senha" : "Exibir Senha"}
+                    >
+                      {showEditPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="text-slate-700">Nível de Acesso</Label>
+                  <Label className="text-slate-700 font-semibold">Nível de Acesso (Cargo)</Label>
                   <Select 
                     value={editUserData.role} 
                     onValueChange={v => setEditUserData({...editUserData, role: v as any})}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger className="border-slate-300">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="admin">Administrador</SelectItem>
-                      <SelectItem value="logistics">Logística</SelectItem>
-                      <SelectItem value="branch">Gerente de Filial</SelectItem>
+                      <SelectItem value="admin">Administrador (Acesso Total)</SelectItem>
+                      <SelectItem value="logistics">Logística / Almoxarifado</SelectItem>
+                      <SelectItem value="branch">Gerente de Filial (Loja)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 
-                {editUserData.role === 'branch' && (
-                  <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
-                    <Label className="text-slate-700">Vincular à Filial</Label>
-                    <SearchableSelect
-                      value={editUserData.branchId}
-                      onChange={v => setEditUserData({...editUserData, branchId: v})}
-                      placeholder="Selecione a filial..."
-                      searchPlaceholder="Digite nome ou código da filial..."
-                      options={branches.map(b => ({
-                        value: b.id,
-                        label: b.name,
-                        code: b.code,
-                        sublabel: b.location
-                      }))}
-                    />
+                <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-slate-700 font-semibold">Vincular à Filial</Label>
+                    {editUserData.role !== 'branch' && (
+                      <span className="text-[10px] text-slate-400 italic">(Opcional para Admin/Logística)</span>
+                    )}
                   </div>
-                )}
+                  <SearchableSelect
+                    value={editUserData.branchId}
+                    onChange={v => setEditUserData({...editUserData, branchId: v})}
+                    placeholder="Selecione a filial..."
+                    searchPlaceholder="Digite nome ou código da filial..."
+                    clearable={true}
+                    options={branches.map(b => ({
+                      value: b.id,
+                      label: b.name,
+                      code: b.code,
+                      sublabel: b.location
+                    }))}
+                  />
+                </div>
 
                 <DialogFooter className="pt-4 flex gap-2 justify-end">
                   <Button 
                     type="button" 
                     variant="outline" 
                     onClick={() => setIsEditUserOpen(false)}
+                    className="border-slate-300 text-slate-700 hover:bg-slate-100"
                   >
                     Cancelar
                   </Button>
                   <Button 
                     type="submit" 
-                    className="bg-brand-600 hover:bg-brand-700 text-white"
+                    className="bg-brand-600 hover:bg-brand-700 text-white font-bold"
                   >
                     Salvar Alterações
                   </Button>

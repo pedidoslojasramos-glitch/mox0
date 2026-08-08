@@ -102,22 +102,49 @@ export default function SettingsModule() {
 
   const handleSaveSupabaseConfig = (e: React.FormEvent) => {
     e.preventDefault();
+    if (supabaseKeyInput && (supabaseKeyInput.startsWith('sb_secret_') || supabaseKeyInput.includes('service_role'))) {
+      toast.error('Chaves secretas (sb_secret_) não podem ser usadas no navegador! Substitua pela Chave Publishable (sb_publishable_). Usando a chave publishable padrão.');
+      const pubKey = 'sb_publishable_JRZTn4DC13sU9c4e9uqKhg_M4H1rnoS';
+      setSupabaseKeyInput(pubKey);
+      saveSupabaseConfig(supabaseUrlInput, pubKey);
+      return;
+    }
     saveSupabaseConfig(supabaseUrlInput, supabaseKeyInput);
-    toast.success('Credenciais do Supabase salvas com sucesso no navegador!');
+    toast.success('Credenciais do Supabase salvas com sucesso!');
   };
 
   const handleTestSupabaseConnection = async () => {
+    if (supabaseUrlInput || supabaseKeyInput) {
+      saveSupabaseConfig(supabaseUrlInput, supabaseKeyInput);
+    }
     const client = getSupabase();
     if (!client) {
       toast.error('Informe a URL e a Chave de API do Supabase e clique em Salvar primeiro.');
       return;
     }
     try {
-      const { data, error } = await client.from('branches').select('*').limit(1);
-      if (error) {
-        toast.error(`Falha na consulta Supabase: ${error.message}. Verifique se rodou o script SQL das tabelas no Supabase.`);
+      const results = await Promise.all([
+        client.from('branches').select('id').limit(1),
+        client.from('suppliers').select('id').limit(1),
+        client.from('products').select('id').limit(1),
+        client.from('users').select('id').limit(1),
+        client.from('branch_orders').select('id').limit(1),
+        client.from('purchase_orders').select('id').limit(1)
+      ]);
+
+      const tableNames = ['branches', 'suppliers', 'products', 'users', 'branch_orders', 'purchase_orders'];
+      const errors: string[] = [];
+
+      results.forEach((res, i) => {
+        if (res.error) {
+          errors.push(`${tableNames[i]}: ${res.error.message}`);
+        }
+      });
+
+      if (errors.length === 0) {
+        toast.success('Conexão e tabelas do Supabase verificadas com sucesso! Todas as 6 tabelas estão acessíveis.');
       } else {
-        toast.success(`Conexão com Supabase efetuada com sucesso! (${data?.length || 0} registro(s) retornado(s))`);
+        toast.warning(`Conexão efetuada, mas algumas tabelas apresentaram erro:\n${errors.join('\n')}\nExecute o script SQL fornecido no painel do Supabase.`);
       }
     } catch (err: any) {
       toast.error(`Erro ao conectar: ${err.message || 'Verifique as credenciais.'}`);
@@ -125,6 +152,9 @@ export default function SettingsModule() {
   };
 
   const handleSyncToSupabase = async () => {
+    if (supabaseUrlInput || supabaseKeyInput) {
+      saveSupabaseConfig(supabaseUrlInput, supabaseKeyInput);
+    }
     const client = getSupabase();
     if (!client) {
       toast.error('Supabase não configurado. Insira a URL e a Chave antes de sincronizar.');
@@ -132,6 +162,8 @@ export default function SettingsModule() {
     }
 
     setIsSyncingSupabase(true);
+    const syncErrors: string[] = [];
+
     try {
       // 1. Sync Branches
       if (branches.length > 0) {
@@ -141,7 +173,8 @@ export default function SettingsModule() {
           location: b.location || '',
           manager: b.manager || ''
         }));
-        await client.from('branches').upsert(payload);
+        const { error } = await client.from('branches').upsert(payload);
+        if (error) syncErrors.push(`Filiais: ${error.message}`);
       }
 
       // 2. Sync Suppliers
@@ -153,7 +186,8 @@ export default function SettingsModule() {
           cnpj: s.cnpj || '',
           contact: s.contact || ''
         }));
-        await client.from('suppliers').upsert(payload);
+        const { error } = await client.from('suppliers').upsert(payload);
+        if (error) syncErrors.push(`Fornecedores: ${error.message}`);
       }
 
       // 3. Sync Products
@@ -169,28 +203,45 @@ export default function SettingsModule() {
           min_stock: p.minStock,
           image: p.image || ''
         }));
-        await client.from('products').upsert(payload);
+        const { error } = await client.from('products').upsert(payload);
+        if (error) syncErrors.push(`Produtos: ${error.message}`);
       }
 
-      // 4. Sync Users (including CARLOS PEREIRA, rr3v, etc.)
+      // 4. Sync Users (including password and roles)
       if (users && users.length > 0) {
-        const payload = users.map(u => ({
-          id: toValidUUID(u.id),
-          name: u.name,
-          email: u.email,
-          role: u.role,
-          branch_id: u.branchId ? toValidUUID(u.branchId) : null
-        }));
-        
-        let syncedCount = 0;
-        for (const userRow of payload) {
-          const { error } = await client.from('users').upsert(userRow, { onConflict: 'email' });
+        let userErrCount = 0;
+        for (const u of users) {
+          const targetBranch = branches.find(b => 
+            b.id === u.branchId || 
+            toValidUUID(b.id) === toValidUUID(u.branchId) || 
+            b.name.toLowerCase().trim() === (u.branchId || '').toLowerCase().trim()
+          );
+          const resolvedBranchId = targetBranch ? toValidUUID(targetBranch.id) : null;
+
+          const userRow = {
+            id: toValidUUID(u.id),
+            name: u.name,
+            email: u.email,
+            role: u.role,
+            password: u.password ? String(u.password).trim() : '123456',
+            branch_id: resolvedBranchId
+          };
+
+          let { error } = await client.from('users').upsert(userRow, { onConflict: 'email' });
           if (error) {
-            console.error(`Erro ao sincronizar usuário ${userRow.name}:`, error);
-          } else {
-            syncedCount++;
+            let rowToTry = { ...userRow };
+            if (error.message.includes('password')) delete (rowToTry as any).password;
+            if (error.code === '23503' || error.message.includes('foreign key')) rowToTry.branch_id = null;
+            let res2 = await client.from('users').upsert(rowToTry, { onConflict: 'email' });
+            if (res2.error && (res2.error.code === '23503' || res2.error.message.includes('foreign key') || res2.error.message.includes('password'))) {
+              rowToTry.branch_id = null;
+              delete (rowToTry as any).password;
+              const res3 = await client.from('users').upsert(rowToTry, { onConflict: 'email' });
+              if (res3.error) userErrCount++;
+            }
           }
         }
+        if (userErrCount > 0) syncErrors.push(`Usuários: ${userErrCount} não puderam ser sincronizados`);
       }
 
       // 5. Sync Branch Orders
@@ -205,10 +256,29 @@ export default function SettingsModule() {
           approved_at: o.approvedAt || null,
           created_at: o.createdAt
         }));
-        await client.from('branch_orders').upsert(payload);
+        const { error } = await client.from('branch_orders').upsert(payload);
+        if (error) syncErrors.push(`Pedidos de Filial: ${error.message}`);
       }
 
-      toast.success('Todos os dados locais (Filiais, Fornecedores, Produtos, Usuários e Pedidos) foram sincronizados com sucesso no Supabase!');
+      // 6. Sync Purchase Orders
+      if (purchaseOrders && purchaseOrders.length > 0) {
+        const payload = purchaseOrders.map(po => ({
+          id: toValidUUID(po.id),
+          supplier_id: toValidUUID(po.supplierId),
+          status: po.status,
+          total_value: po.totalValue || 0,
+          items: po.items,
+          created_at: po.createdAt
+        }));
+        const { error } = await client.from('purchase_orders').upsert(payload);
+        if (error) syncErrors.push(`Pedidos de Compra: ${error.message}`);
+      }
+
+      if (syncErrors.length === 0) {
+        toast.success('Todos os dados locais (Filiais, Fornecedores, Produtos, Usuários, Pedidos de Filial e Pedidos de Compra) foram sincronizados com sucesso no Supabase!');
+      } else {
+        toast.warning(`Sincronização concluída com avisos:\n${syncErrors.join('\n')}`);
+      }
     } catch (err: any) {
       toast.error(`Erro ao sincronizar com Supabase: ${err.message || 'Erro desconhecido'}`);
     } finally {
@@ -235,10 +305,6 @@ DO $$ BEGIN
     );
 EXCEPTION WHEN duplicate_object THEN null; END $$;
 
-DO $$ BEGIN
-    CREATE TYPE inventory_count_status AS ENUM ('pending', 'completed');
-EXCEPTION WHEN duplicate_object THEN null; END $$;
-
 CREATE TABLE IF NOT EXISTS public.branches (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
@@ -263,11 +329,14 @@ CREATE TABLE IF NOT EXISTS public.users (
   auth_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   name TEXT NOT NULL,
   email TEXT UNIQUE NOT NULL,
+  password TEXT DEFAULT '123',
   role user_role NOT NULL DEFAULT 'branch',
   branch_id UUID REFERENCES public.branches(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS password TEXT DEFAULT '123';
 
 CREATE TABLE IF NOT EXISTS public.products (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -296,20 +365,45 @@ CREATE TABLE IF NOT EXISTS public.branch_orders (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS public.purchase_orders (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  supplier_id UUID REFERENCES public.suppliers(id) ON DELETE CASCADE,
+  status po_status NOT NULL DEFAULT 'pending',
+  total_value NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
+  items JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 ALTER TABLE public.branches ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.suppliers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.branch_orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.purchase_orders ENABLE ROW LEVEL SECURITY;
 
 DO $$ BEGIN CREATE POLICY "Allow public read-write for branches" ON public.branches FOR ALL USING (true) WITH CHECK (true); EXCEPTION WHEN duplicate_object THEN null; END $$;
 DO $$ BEGIN CREATE POLICY "Allow public read-write for suppliers" ON public.suppliers FOR ALL USING (true) WITH CHECK (true); EXCEPTION WHEN duplicate_object THEN null; END $$;
 DO $$ BEGIN CREATE POLICY "Allow public read-write for users" ON public.users FOR ALL USING (true) WITH CHECK (true); EXCEPTION WHEN duplicate_object THEN null; END $$;
 DO $$ BEGIN CREATE POLICY "Allow public read-write for products" ON public.products FOR ALL USING (true) WITH CHECK (true); EXCEPTION WHEN duplicate_object THEN null; END $$;
 DO $$ BEGIN CREATE POLICY "Allow public read-write for branch_orders" ON public.branch_orders FOR ALL USING (true) WITH CHECK (true); EXCEPTION WHEN duplicate_object THEN null; END $$;
+DO $$ BEGIN CREATE POLICY "Allow public read-write for purchase_orders" ON public.purchase_orders FOR ALL USING (true) WITH CHECK (true); EXCEPTION WHEN duplicate_object THEN null; END $$;
 `;
-    navigator.clipboard.writeText(sql);
-    toast.success('Script SQL copiado para a área de transferência!');
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(sql);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = sql;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      toast.success('Script SQL copiado para a área de transferência!');
+    } catch (e) {
+      toast.error('Erro ao copiar Script SQL. Tente selecionar o texto manualmente.');
+    }
   };
   
   // User creation state

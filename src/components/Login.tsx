@@ -68,7 +68,7 @@ export default function Login() {
             </div>
           </div>
 
-          <Button type="submit" className="w-full bg-brand-600 hover:bg-brand-700 h-11">
+          <Button type="submit" className="w-full bg-brand-600 hover:bg-brand-700 h-11 font-bold">
             <LogIn className="mr-2 h-4 w-4" /> Entrar no Sistema
           </Button>
         </form>
@@ -76,3 +76,4 @@ export default function Login() {
     </Card>
   );
 }
+

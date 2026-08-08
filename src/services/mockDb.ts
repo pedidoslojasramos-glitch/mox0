@@ -115,11 +115,22 @@ export const mockDb = {
       const isInitialized = Boolean(parsed && parsed._initialized);
 
       const loadedUsers = (Array.isArray(parsed.users) ? parsed.users : (isInitialized ? [] : initialState.users))
-        .filter((u: any) => u && !isRecordDeleted(u.id) && !isRecordDeleted(u.email) && !isRecordDeleted(u.name))
+        .filter((u: any) => u && u.id && !isRecordDeleted(u.id))
         .map((u: any) => ({
           ...u,
-          password: u?.password || '123'
+          password: u?.password ? String(u.password).trim() : '123'
         }));
+
+      // Guarantee Master Admin user is registered in the users list
+      if (!loadedUsers.some((u: any) => u && u.email && u.email.toLowerCase().trim() === 'admin@ramox.com')) {
+        loadedUsers.unshift({
+          id: '1',
+          name: 'Admin Master',
+          email: 'admin@ramox.com',
+          password: '123',
+          role: 'admin'
+        });
+      }
 
       const loadedClassifications = (Array.isArray(parsed.productClassifications) 
         ? parsed.productClassifications 
@@ -130,7 +141,7 @@ export const mockDb = {
       }
 
       const loadedProducts = (Array.isArray(parsed.products) ? parsed.products : (isInitialized ? [] : [...initialState.products]))
-        .filter((p: any) => p && !isRecordDeleted(p.id) && !isRecordDeleted(p.code) && !isRecordDeleted(p.name));
+        .filter((p: any) => p && p.id && !isRecordDeleted(p.id));
 
       // Only add default EPIs if database has never been initialized
       if (!isInitialized) {
@@ -145,10 +156,10 @@ export const mockDb = {
       }
 
       const loadedBranches = (Array.isArray(parsed.branches) ? parsed.branches : (isInitialized ? [] : initialState.branches))
-        .filter((b: any) => b && !isRecordDeleted(b.id) && !isRecordDeleted(b.name));
+        .filter((b: any) => b && b.id && !isRecordDeleted(b.id));
 
       const loadedSuppliers = (Array.isArray(parsed.suppliers) ? parsed.suppliers : (isInitialized ? [] : initialState.suppliers))
-        .filter((s: any) => s && !isRecordDeleted(s.id) && !isRecordDeleted(s.code) && !isRecordDeleted(s.name));
+        .filter((s: any) => s && s.id && !isRecordDeleted(s.id));
 
       const loadedBranchOrders = (Array.isArray(parsed.branchOrders) ? parsed.branchOrders : [])
         .filter((o: any) => o && !isRecordDeleted(o.id));

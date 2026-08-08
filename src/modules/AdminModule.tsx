@@ -3718,16 +3718,29 @@ function PurchasesTab() {
                     <TableCell className="text-right pr-6">
                       <div className="flex justify-end gap-2">
                         {o.status === 'pending' && (
-                          <Button 
-                            size="sm" 
-                            className="bg-cyan-500 hover:bg-cyan-400 text-white h-9 px-4 rounded-md font-bold shadow-lg shadow-cyan-500/20 border-none transition-all active:scale-95" 
-                            onClick={() => {
-                              updatePurchaseOrderStatus(o.id, 'approved');
-                              toast.success('Pedido aprovado! A logística já pode visualizar a entrada.');
-                            }}
-                          >
-                            <CheckCircle2 size={16} className="mr-2" /> Aprovar
-                          </Button>
+                          <>
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              className="bg-red-950/40 hover:bg-red-900/60 text-red-400 border-red-800/50 font-bold h-9 px-3 rounded-md transition-colors"
+                              onClick={() => {
+                                updatePurchaseOrderStatus(o.id, 'rejected' as any);
+                                toast.info(`Pedido de compra #${o.id.toUpperCase()} cancelado.`);
+                              }}
+                            >
+                              <XCircle size={16} className="mr-1.5" /> Cancelar
+                            </Button>
+                            <Button 
+                              size="sm" 
+                              className="bg-cyan-500 hover:bg-cyan-400 text-white h-9 px-4 rounded-md font-bold shadow-lg shadow-cyan-500/20 border-none transition-all active:scale-95" 
+                              onClick={() => {
+                                updatePurchaseOrderStatus(o.id, 'approved');
+                                toast.success('Pedido aprovado! A logística já pode visualizar a entrada.');
+                              }}
+                            >
+                              <CheckCircle2 size={16} className="mr-2" /> Aprovar
+                            </Button>
+                          </>
                         )}
                         
                         {o.status === 'checked' && (
@@ -3780,6 +3793,8 @@ function ApprovalTab() {
   const { branchOrders, branches, products, updateBranchOrderStatus, updateBranchOrderItems, currentUser } = useRamoxContext();
   const [editingOrder, setEditingOrder] = useState<string | null>(null);
   const [editItems, setEditItems] = useState<{ productId: string, quantity: number }[]>([]);
+  const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
+  const [selectedItemProductIds, setSelectedItemProductIds] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState<string>('active');
   const [branchFilter, setBranchFilter] = useState<string>('all');
   const [dateFilter, setDateFilter] = useState<string>('');
@@ -3817,6 +3832,7 @@ function ApprovalTab() {
   const startEdit = (order: any) => {
     setEditingOrder(order.id);
     setEditItems([...order.items]);
+    setSelectedItemProductIds([]);
   };
 
   const handleUpdateItem = (productId: string, quantity: number) => {
@@ -3948,10 +3964,79 @@ function ApprovalTab() {
           </div>
         </CardHeader>
         <CardContent className="p-0">
+          {/* Batch Actions Bar for Orders */}
+          {selectedOrderIds.length > 0 && (
+            <div className="mx-6 my-4 bg-slate-900 border border-cyan-500/40 p-3.5 rounded-xl flex flex-wrap items-center justify-between gap-3 shadow-xl animate-in fade-in">
+              <div className="flex items-center gap-3">
+                <div className="bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-2">
+                  <CheckSquare size={16} />
+                  <span>{selectedOrderIds.length} pedido(s) selecionado(s)</span>
+                </div>
+                <p className="text-xs text-slate-400 hidden sm:block">Ações em lote para os pedidos das filiais</p>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="bg-red-950/80 hover:bg-red-900 text-red-300 border-red-800/60 font-bold h-9 px-3.5 rounded-lg text-xs transition-all shadow-md"
+                  onClick={() => {
+                    selectedOrderIds.forEach(id => {
+                      updateBranchOrderStatus(id, 'rejected', currentUser?.name || 'Administrador Central');
+                    });
+                    toast.info(`${selectedOrderIds.length} pedido(s) cancelado(s) em lote.`);
+                    setSelectedOrderIds([]);
+                  }}
+                >
+                  <XCircle size={15} className="mr-1.5 text-red-400" /> Cancelar Pedidos Selecionados ({selectedOrderIds.length})
+                </Button>
+
+                <Button
+                  size="sm"
+                  className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold h-9 px-3.5 rounded-lg text-xs transition-all shadow-md"
+                  onClick={() => {
+                    selectedOrderIds.forEach(id => {
+                      updateBranchOrderStatus(id, 'approved', currentUser?.name || 'Administrador Central');
+                    });
+                    toast.success(`${selectedOrderIds.length} pedido(s) aprovado(s) em lote.`);
+                    setSelectedOrderIds([]);
+                  }}
+                >
+                  <CheckCircle2 size={15} className="mr-1.5" /> Aprovar Selecionados ({selectedOrderIds.length})
+                </Button>
+
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-slate-400 hover:text-white h-9 px-2 text-xs"
+                  onClick={() => setSelectedOrderIds([])}
+                >
+                  Desmarcar
+                </Button>
+              </div>
+            </div>
+          )}
+
           <div className="w-full overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow className="border-b border-slate-800 hover:bg-transparent">
+                  <TableHead className="w-10 text-center">
+                    <input 
+                      type="checkbox"
+                      title="Selecionar todos os pedidos visíveis"
+                      className="rounded border-slate-700 bg-slate-950 text-cyan-500 focus:ring-cyan-500 h-4 w-4 cursor-pointer align-middle"
+                      checked={paginatedOrders.length > 0 && paginatedOrders.every(o => selectedOrderIds.includes(o.id))}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          const newSelected = Array.from(new Set([...selectedOrderIds, ...paginatedOrders.map(o => o.id)]));
+                          setSelectedOrderIds(newSelected);
+                        } else {
+                          setSelectedOrderIds(selectedOrderIds.filter(id => !paginatedOrders.some(o => o.id === id)));
+                        }
+                      }}
+                    />
+                  </TableHead>
                   <TableHead className="text-slate-500 font-bold uppercase text-[10px] tracking-widest">Pedido</TableHead>
                 <TableHead className="text-slate-500 font-bold uppercase text-[10px] tracking-widest">Filial</TableHead>
                 <TableHead className="text-slate-500 font-bold uppercase text-[10px] tracking-widest">Data</TableHead>
@@ -3984,7 +4069,21 @@ function ApprovalTab() {
                 };
 
                 return (
-                  <TableRow key={order.id} className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors">
+                  <TableRow key={order.id} className={`border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors ${selectedOrderIds.includes(order.id) ? 'bg-cyan-500/5' : ''}`}>
+                    <TableCell className="w-10 text-center py-2.5">
+                      <input 
+                        type="checkbox"
+                        className="rounded border-slate-700 bg-slate-950 text-cyan-500 focus:ring-cyan-500 h-4 w-4 cursor-pointer align-middle"
+                        checked={selectedOrderIds.includes(order.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedOrderIds(prev => [...prev, order.id]);
+                          } else {
+                            setSelectedOrderIds(prev => prev.filter(id => id !== order.id));
+                          }
+                        }}
+                      />
+                    </TableCell>
                     <TableCell className={`font-mono font-bold ${isDiscrepancy ? 'text-red-500' : 'text-cyan-500'}`}>
                       #{order.id.toUpperCase()}
                     </TableCell>
@@ -4019,13 +4118,70 @@ function ApprovalTab() {
                                     </p>
                                   )}
                                 </DialogHeader>
-                                <div className="py-4 space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+
+                                {/* Item Multi-selection Header inside Modal */}
+                                <div className="flex items-center justify-between bg-slate-800/60 p-2.5 rounded-lg border border-slate-700/50 mt-2">
+                                  <label className="flex items-center gap-2 text-xs font-bold text-slate-300 cursor-pointer select-none">
+                                    <input 
+                                      type="checkbox"
+                                      className="rounded border-slate-700 bg-slate-950 text-cyan-500 focus:ring-cyan-500 h-4 w-4"
+                                      checked={editItems.length > 0 && editItems.every(item => selectedItemProductIds.includes(item.productId))}
+                                      onChange={(e) => {
+                                        if (e.target.checked) {
+                                          setSelectedItemProductIds(editItems.map(i => i.productId));
+                                        } else {
+                                          setSelectedItemProductIds([]);
+                                        }
+                                      }}
+                                    />
+                                    <span>Selecionar Todos os Itens ({editItems.length})</span>
+                                  </label>
+
+                                  {selectedItemProductIds.length > 0 && (
+                                    <Button
+                                      size="sm"
+                                      variant="destructive"
+                                      className="bg-red-600 hover:bg-red-500 text-white font-bold h-8 text-xs px-3 rounded-md shadow-sm transition-all"
+                                      onClick={() => {
+                                        const remaining = editItems.filter(item => !selectedItemProductIds.includes(item.productId));
+                                        setEditItems(remaining);
+                                        const removedCount = selectedItemProductIds.length;
+                                        setSelectedItemProductIds([]);
+                                        if (remaining.length === 0) {
+                                          updateBranchOrderStatus(order.id, 'rejected', currentUser?.name || 'Administrador Central');
+                                          setEditingOrder(null);
+                                          toast.info(`Todos os itens foram removidos. Pedido #${order.id.toUpperCase()} foi cancelado.`);
+                                        } else {
+                                          updateBranchOrderItems(order.id, remaining);
+                                          toast.info(`${removedCount} item(ns) cancelado(s)/removido(s) do pedido.`);
+                                        }
+                                      }}
+                                    >
+                                      <Trash2 size={14} className="mr-1.5" /> Cancelar {selectedItemProductIds.length} Item(ns) Selecionado(s)
+                                    </Button>
+                                  )}
+                                </div>
+
+                                <div className="py-4 space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
                                   {editItems.map((item, idx) => {
                                     const product = products.find(p => p.id === item.productId);
+                                    const isItemSelected = selectedItemProductIds.includes(item.productId);
                                     return (
-                                      <div key={idx} className="flex items-center gap-4 bg-slate-800/40 p-3 rounded-md border border-slate-700/30">
-                                        <div className="flex-1">
-                                          <p className="font-bold text-white">{product?.name}</p>
+                                      <div key={idx} className={`flex items-center gap-3 p-3 rounded-md border transition-all ${isItemSelected ? 'bg-red-950/30 border-red-800/50' : 'bg-slate-800/40 border-slate-700/30'}`}>
+                                        <input 
+                                          type="checkbox"
+                                          className="rounded border-slate-700 bg-slate-950 text-cyan-500 focus:ring-cyan-500 h-4 w-4 cursor-pointer"
+                                          checked={isItemSelected}
+                                          onChange={(e) => {
+                                            if (e.target.checked) {
+                                              setSelectedItemProductIds(prev => [...prev, item.productId]);
+                                            } else {
+                                              setSelectedItemProductIds(prev => prev.filter(id => id !== item.productId));
+                                            }
+                                          }}
+                                        />
+                                        <div className="flex-1 min-w-0">
+                                          <p className="font-bold text-white text-sm truncate">{product?.name || item.productId}</p>
                                           <p className="text-xs text-slate-400 uppercase tracking-widest font-mono">{product?.code}</p>
                                         </div>
                                         <div className="w-24">
@@ -4034,20 +4190,48 @@ function ApprovalTab() {
                                             type="number" 
                                             value={item.quantity} 
                                             onChange={(e) => handleUpdateItem(item.productId, Number(e.target.value))}
-                                            className="bg-slate-950 border-slate-800 text-center font-bold text-cyan-400 h-9"
+                                            className="bg-slate-950 border-slate-800 text-center font-bold text-cyan-400 h-9 text-sm"
                                           />
                                         </div>
                                       </div>
                                     );
                                   })}
+                                  {editItems.length === 0 && (
+                                    <p className="text-center py-6 text-slate-500 italic">Nenhum item restante no pedido.</p>
+                                  )}
                                 </div>
-                                <DialogFooter className="border-t border-slate-800 pt-6">
-                                  <Button variant="ghost" onClick={() => setEditingOrder(null)} className="text-slate-400">Cancelar</Button>
-                                  <Button onClick={saveChanges} className="bg-cyan-500 hover:bg-cyan-400 text-white font-bold">Salvar Alterações</Button>
+                                <DialogFooter className="border-t border-slate-800 pt-6 flex items-center justify-between gap-2">
+                                  <Button 
+                                    variant="outline" 
+                                    className="bg-red-950/60 hover:bg-red-900/80 text-red-400 border-red-800/60 font-bold"
+                                    onClick={() => {
+                                      updateBranchOrderStatus(order.id, 'rejected', currentUser?.name || 'Administrador Central');
+                                      setEditingOrder(null);
+                                      toast.info(`Pedido #${order.id.toUpperCase()} cancelado/rejeitado.`);
+                                    }}
+                                  >
+                                    <XCircle size={16} className="mr-2" /> Cancelar Pedido Completo
+                                  </Button>
+                                  <div className="flex gap-2">
+                                    <Button variant="ghost" onClick={() => setEditingOrder(null)} className="text-slate-400">Fechar</Button>
+                                    <Button onClick={saveChanges} className="bg-cyan-500 hover:bg-cyan-400 text-white font-bold">Salvar Alterações</Button>
+                                  </div>
                                 </DialogFooter>
                               </DialogContent>
                             </Dialog>
                             
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              className="bg-red-950/40 hover:bg-red-900/60 text-red-400 border-red-800/50 font-bold h-9 px-3 rounded-md transition-colors"
+                              onClick={() => {
+                                updateBranchOrderStatus(order.id, 'rejected', currentUser?.name || 'Administrador Central');
+                                toast.info(`Pedido #${order.id.toUpperCase()} cancelado.`);
+                              }}
+                            >
+                              <XCircle size={16} className="mr-1.5" /> Cancelar
+                            </Button>
+
                             <Button 
                               size="sm" 
                               className={`${isDiscrepancy ? 'bg-red-500 hover:bg-red-400' : 'bg-amber-500 hover:bg-amber-400'} text-white font-bold h-9 px-4 rounded-md shadow-lg`}
@@ -4059,9 +4243,23 @@ function ApprovalTab() {
                               <CheckCircle2 size={16} className="mr-2" /> {isDiscrepancy ? 'Aprovar Revisão' : 'Aprovar'}
                             </Button>
                           </>
+                        ) : order.status !== 'rejected' && order.status !== 'delivered' ? (
+                          <div className="flex items-center gap-2">
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              className="bg-red-950/40 hover:bg-red-900/60 text-red-400 border-red-800/50 font-bold h-8 px-2.5 rounded-md text-xs transition-colors"
+                              onClick={() => {
+                                updateBranchOrderStatus(order.id, 'rejected', currentUser?.name || 'Administrador Central');
+                                toast.info(`Pedido #${order.id.toUpperCase()} cancelado.`);
+                              }}
+                            >
+                              <XCircle size={14} className="mr-1" /> Cancelar Pedido
+                            </Button>
+                          </div>
                         ) : (
                           <div className="flex items-center gap-2 text-slate-500 text-xs font-medium italic pr-4">
-                            Em Processamento...
+                            {order.status === 'rejected' ? 'Cancelado / Rejeitado' : 'Entregue'}
                           </div>
                         )}
                       </div>
@@ -4071,7 +4269,7 @@ function ApprovalTab() {
               })}
               {filteredOrders.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="py-20 text-center">
+                  <TableCell colSpan={7} className="py-20 text-center">
                     <p className="text-slate-500 font-medium italic">Nenhum pedido encontrado nesta categoria.</p>
                   </TableCell>
                 </TableRow>

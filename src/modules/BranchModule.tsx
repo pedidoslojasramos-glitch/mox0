@@ -307,7 +307,7 @@ export default function BranchModule({ initialTab }: { initialTab?: string }) {
     setPriority('normal');
     setIsCheckoutOpen(false);
     setIsOrdering(false);
-    toast.success('Pedido enviado para o Departamento de Compras e Abastecimento!');
+    toast.success('Pedido enviado com sucesso! O estoque dos itens solicitados foi reservado.');
   };
 
   const categories = ['all', ...(productClassifications || [])];

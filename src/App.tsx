@@ -27,6 +27,7 @@ import {
   ChevronDown,
   ChevronRight,
   Sliders,
+  XCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -113,14 +114,28 @@ export default function App() {
         if (isEnabled) {
           setShowVignette(true);
         }
-        setShowLoginPendingAlert(true);
+        if (currentUser.role === 'branch') {
+          // Branch users ONLY get the delivery confirmation reminder popup when an order is in transit
+          if (branchShippedCount > 0) {
+            setShowLoginPendingAlert(true);
+          } else {
+            setShowLoginPendingAlert(false);
+          }
+        } else {
+          // Master users (admin/logistics) get the operational processes alert if there are pending tasks
+          if (totalPending > 0) {
+            setShowLoginPendingAlert(true);
+          } else {
+            setShowLoginPendingAlert(false);
+          }
+        }
       }
     } else {
       setLastLoggedInUserId(null);
       setShowVignette(false);
       setShowLoginPendingAlert(false);
     }
-  }, [currentUser, settings?.vignetteEnabled, lastLoggedInUserId]);
+  }, [currentUser, settings?.vignetteEnabled, lastLoggedInUserId, branchShippedCount, totalPending]);
 
   useEffect(() => {
     (window as any).triggerMoxVignette = () => {
@@ -249,7 +264,7 @@ export default function App() {
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard':
-        return <DashboardOverview />;
+        return <DashboardOverview setActiveTab={setActiveTab} />;
       case 'limits':
         return <LimitsModule />;
       case 'settings':
@@ -275,7 +290,7 @@ export default function App() {
         if (activeTab.startsWith('branch_')) {
           return <BranchModule initialTab={activeTab.replace('branch_', '')} />;
         }
-        return <DashboardOverview />;
+        return <DashboardOverview setActiveTab={setActiveTab} />;
     }
   };
 
@@ -490,8 +505,16 @@ export default function App() {
                     <Bell size={20} className="animate-pulse" />
                   </div>
                   <div>
-                    <h3 className="text-lg font-bold text-white">Alerta de Processos Pendentes</h3>
-                    <p className="text-xs text-slate-400">Resumo de processos operacionais</p>
+                    <h3 className="text-lg font-bold text-white">
+                      {currentUser?.role === 'branch' 
+                        ? 'Lembrete de Confirmação de Entrega' 
+                        : 'Alerta de Processos Pendentes'}
+                    </h3>
+                    <p className="text-xs text-slate-400">
+                      {currentUser?.role === 'branch' 
+                        ? 'Pedidos em trânsito aguardando recebimento na filial' 
+                        : 'Resumo de processos operacionais'}
+                    </p>
                   </div>
                 </div>
                 <button
@@ -506,183 +529,26 @@ export default function App() {
 
               {/* Content */}
               <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
-                <p className="text-sm text-slate-300">
-                  Olá, <strong className="text-cyan-400">{currentUser?.name}</strong>! Foram detectados os seguintes processos aguardando tratamento no sistema:
-                </p>
+                {currentUser?.role === 'branch' ? (
+                  <>
+                    <p className="text-sm text-slate-300">
+                      Olá, <strong className="text-cyan-400">{currentUser?.name}</strong>! Foi identificado pedido em trânsito com envio confirmado para a sua filial. Por favor, confirme o recebimento e a entrega dos itens ao chegarem na loja.
+                    </p>
 
-                <div className="space-y-3">
-                  {/* ADMIN and LOGISTICS rows */}
-                  {['admin', 'logistics'].includes(currentUser?.role) && (
-                    <>
-                      {/* Separações / Picking */}
-                      <div className="flex items-center justify-between p-4 bg-slate-950/40 rounded-xl border border-slate-800 hover:border-amber-500/30 transition-all group">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${pickingCount > 0 ? 'bg-amber-500/10 text-amber-500' : 'bg-slate-800/40 text-slate-500'}`}>
-                            <Box size={20} />
+                    <div className="space-y-3">
+                      {branchShippedCount > 0 ? (
+                        <div className="flex items-center justify-between p-4 bg-slate-950/40 rounded-xl border border-slate-800 hover:border-cyan-500/30 transition-all group">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-cyan-500/10 text-cyan-400">
+                              <Truck size={20} />
+                            </div>
+                            <div>
+                              <p className="font-mono text-sm font-black tracking-wide text-cyan-400">
+                                {getPendingCountLabel(branchShippedCount, 'PEDIDO EM TRÂNSITO - CONFIRMAR ENTREGA', 'PEDIDOS EM TRÂNSITO - CONFIRMAR ENTREGA')}
+                              </p>
+                              <p className="text-xs text-slate-500">Cargas despachadas que aguardam conferência física e confirmação de entrega</p>
+                            </div>
                           </div>
-                          <div>
-                            <p className={`font-mono text-sm font-black tracking-wide ${pickingCount > 0 ? 'text-amber-500' : 'text-slate-450'}`}>
-                              {getPendingCountLabel(pickingCount, 'SEPARAÇÃO PENDENTE', 'SEPARAÇÕES PENDENTES')}
-                            </p>
-                            <p className="text-xs text-slate-500">Pedidos prontos para a área de separação física</p>
-                          </div>
-                        </div>
-                        {pickingCount > 0 && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => {
-                              setActiveTab('logistics_picking_cities');
-                              setShowLoginPendingAlert(false);
-                            }}
-                            className="h-8 hover:bg-amber-500 hover:text-white border border-amber-500/20 text-xs gap-1 opacity-90 hover:opacity-100 transition-all font-bold text-amber-500"
-                          >
-                            Separar <ChevronRight size={14} />
-                          </Button>
-                        )}
-                      </div>
-                    </>
-                  )}
-
-                  {/* ADMIN ONLY rows */}
-                  {currentUser?.role === 'admin' && (
-                    <>
-                      {/* Faturamentos */}
-                      <div className="flex items-center justify-between p-4 bg-slate-950/40 rounded-xl border border-slate-800 hover:border-purple-500/30 transition-all group">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${faturamentoCount > 0 ? 'bg-purple-500/10 text-purple-500' : 'bg-slate-800/40 text-slate-500'}`}>
-                            <FileText size={20} />
-                          </div>
-                          <div>
-                            <p className={`font-mono text-sm font-black tracking-wide ${faturamentoCount > 0 ? 'text-purple-500' : 'text-slate-450'}`}>
-                              {getPendingCountLabel(faturamentoCount, 'FATURAMENTO PENDENTE', 'FATURAMENTOS PENDENTES')}
-                            </p>
-                            <p className="text-xs text-slate-500">Pedidos separados aguardando Nota Fiscal de saída</p>
-                          </div>
-                        </div>
-                        {faturamentoCount > 0 && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => {
-                              setActiveTab('admin_invoicing');
-                              setShowLoginPendingAlert(false);
-                            }}
-                            className="h-8 hover:bg-purple-500 hover:text-white border border-purple-500/20 text-xs gap-1 opacity-90 hover:opacity-100 transition-all font-bold text-purple-500"
-                          >
-                            Faturar <ChevronRight size={14} />
-                          </Button>
-                        )}
-                      </div>
-
-                      {/* Aprovações */}
-                      <div className="flex items-center justify-between p-4 bg-slate-950/40 rounded-xl border border-slate-800 hover:border-rose-500/30 transition-all group">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${approvalCount > 0 ? 'bg-rose-500/10 text-rose-500' : 'bg-slate-800/40 text-slate-500'}`}>
-                            <CheckCircle2 size={20} />
-                          </div>
-                          <div>
-                            <p className={`font-mono text-sm font-black tracking-wide ${approvalCount > 0 ? 'text-rose-500' : 'text-slate-450'}`}>
-                              {getPendingCountLabel(approvalCount, 'APROVAÇÃO PENDENTE', 'APROVAÇÕES PENDENTES')}
-                            </p>
-                            <p className="text-xs text-slate-500">Pedidos de filiais aguardando auditoria e aprovação</p>
-                          </div>
-                        </div>
-                        {approvalCount > 0 && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => {
-                              setActiveTab('admin_approval');
-                              setShowLoginPendingAlert(false);
-                            }}
-                            className="h-8 hover:bg-rose-500 hover:text-white border border-rose-500/20 text-xs gap-1 opacity-90 hover:opacity-100 transition-all font-bold text-rose-500"
-                          >
-                            Aprovar <ChevronRight size={14} />
-                          </Button>
-                        )}
-                      </div>
-                    </>
-                  )}
-
-                  {/* ADMIN and LOGISTICS rows (receiving & counts) */}
-                  {['admin', 'logistics'].includes(currentUser?.role) && (
-                    <>
-                      {/* Recebimentos */}
-                      <div className="flex items-center justify-between p-4 bg-slate-950/40 rounded-xl border border-slate-800 hover:border-cyan-500/30 transition-all group">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${receivingCount > 0 ? 'bg-cyan-500/10 text-cyan-400' : 'bg-slate-800/40 text-slate-500'}`}>
-                            <ShoppingCart size={20} />
-                          </div>
-                          <div>
-                            <p className={`font-mono text-sm font-black tracking-wide ${receivingCount > 0 ? 'text-cyan-400' : 'text-slate-450'}`}>
-                              {getPendingCountLabel(receivingCount, 'RECEBIMENTO PENDENTE', 'RECEBIMENTOS PENDENTES')}
-                            </p>
-                            <p className="text-xs text-slate-500">Pedidos de compra aprovados pendentes de recebimento</p>
-                          </div>
-                        </div>
-                        {receivingCount > 0 && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => {
-                              setActiveTab('logistics_incoming');
-                              setShowLoginPendingAlert(false);
-                            }}
-                            className="h-8 hover:bg-cyan-500 hover:text-white border border-cyan-500/20 text-xs gap-1 opacity-90 hover:opacity-100 transition-all font-bold text-cyan-500"
-                          >
-                            Receber <ChevronRight size={14} />
-                          </Button>
-                        )}
-                      </div>
-
-                      {/* Contagens de Estoque */}
-                      <div className="flex items-center justify-between p-4 bg-slate-950/40 rounded-xl border border-slate-800 hover:border-emerald-500/30 transition-all group">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${contagensCount > 0 ? 'bg-emerald-500/10 text-emerald-500' : 'bg-slate-800/40 text-slate-500'}`}>
-                            <ClipboardList size={20} />
-                          </div>
-                          <div>
-                            <p className={`font-mono text-sm font-black tracking-wide ${contagensCount > 0 ? 'text-emerald-500' : 'text-slate-450'}`}>
-                              {getPendingCountLabel(contagensCount, 'CONTAGEM PENDENTE', 'CONTAGENS PENDENTES')}
-                            </p>
-                            <p className="text-xs text-slate-500">Contagens cíclicas de inventário requisitadas</p>
-                          </div>
-                        </div>
-                        {contagensCount > 0 && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => {
-                              setActiveTab('logistics_counts');
-                              setShowLoginPendingAlert(false);
-                            }}
-                            className="h-8 hover:bg-emerald-500 hover:text-white border border-emerald-500/20 text-xs gap-1 opacity-90 hover:opacity-100 transition-all font-bold text-emerald-500"
-                          >
-                            Contar <ChevronRight size={14} />
-                          </Button>
-                        )}
-                      </div>
-                    </>
-                  )}
-
-                  {/* BRANCH ONLY rows */}
-                  {currentUser?.role === 'branch' && (
-                    <>
-                      {/* Pedidos Enviados Aguardando Conferência de Entrega */}
-                      <div className="flex items-center justify-between p-4 bg-slate-950/40 rounded-xl border border-slate-800 hover:border-cyan-500/30 transition-all group">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${branchShippedCount > 0 ? 'bg-cyan-500/10 text-cyan-400' : 'bg-slate-800/40 text-slate-500'}`}>
-                            <Truck size={20} />
-                          </div>
-                          <div>
-                            <p className={`font-mono text-sm font-black tracking-wide ${branchShippedCount > 0 ? 'text-cyan-400' : 'text-slate-450'}`}>
-                              {getPendingCountLabel(branchShippedCount, 'CARGA EM TRÂNSITO PENDENTE', 'CARGAS EM TRÂNSITO PENDENTES')}
-                            </p>
-                            <p className="text-xs text-slate-500">Pedidos enviados que aguardam conferência física e recebimento na unidade</p>
-                          </div>
-                        </div>
-                        {branchShippedCount > 0 && (
                           <Button
                             size="sm"
                             variant="ghost"
@@ -692,47 +558,187 @@ export default function App() {
                             }}
                             className="h-8 hover:bg-cyan-500 hover:text-white border border-cyan-500/20 text-xs gap-1 opacity-90 hover:opacity-100 transition-all font-bold text-cyan-500"
                           >
-                            Conferir Carga <ChevronRight size={14} />
+                            Confirmar Entrega <ChevronRight size={14} />
                           </Button>
-                        )}
-                      </div>
-
-                      {/* Pedidos do estabelecimento Aguardando Aprovação */}
-                      <div className="flex items-center justify-between p-4 bg-slate-950/40 rounded-xl border border-slate-800 hover:border-amber-500/30 transition-all group">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${branchPendingApprovalCount > 0 ? 'bg-amber-500/10 text-amber-500' : 'bg-slate-800/40 text-slate-500'}`}>
-                            <Clock size={20} />
-                          </div>
-                          <div>
-                            <p className={`font-mono text-sm font-black tracking-wide ${branchPendingApprovalCount > 0 ? 'text-amber-500' : 'text-slate-450'}`}>
-                              {getPendingCountLabel(branchPendingApprovalCount, 'PEDIDO AGUARDANDO APROVAÇÃO', 'PEDIDOS AGUARDANDO APROVAÇÃO')}
-                            </p>
-                            <p className="text-xs text-slate-500">Seus novos pedidos de reposição aguardando verificação da gerência</p>
-                          </div>
                         </div>
-                        {branchPendingApprovalCount > 0 && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => {
-                              setActiveTab('branch_orders');
-                              setShowLoginPendingAlert(false);
-                            }}
-                            className="h-8 hover:bg-amber-500 hover:text-white border border-amber-500/20 text-xs gap-1 opacity-90 hover:opacity-100 transition-all font-bold text-amber-500"
-                          >
-                            Ver Pedidos <ChevronRight size={14} />
-                          </Button>
-                        )}
-                      </div>
-                    </>
-                  )}
-                </div>
+                      ) : (
+                        <div className="py-6 text-center text-slate-500">
+                          <p className="text-emerald-500 font-bold mb-1">✓ Nenhuma entrega pendente!</p>
+                          <p className="text-xs">Não há pedidos em trânsito aguardando confirmação de entrega no momento.</p>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm text-slate-300">
+                      Olá, <strong className="text-cyan-400">{currentUser?.name}</strong>! Foram detectados os seguintes processos aguardando tratamento no sistema:
+                    </p>
 
-                {totalPending === 0 && (
-                  <div className="py-6 text-center text-slate-500">
-                    <p className="text-emerald-500 font-bold mb-1">✓ Excelente!</p>
-                    <p className="text-xs">Não há processos pendentes no momento. Tudo atualizado!</p>
-                  </div>
+                    <div className="space-y-3">
+                      {/* ADMIN and LOGISTICS rows */}
+                      {['admin', 'logistics'].includes(currentUser?.role) && (
+                        <>
+                          {/* Separações / Picking */}
+                          <div className="flex items-center justify-between p-4 bg-slate-950/40 rounded-xl border border-slate-800 hover:border-amber-500/30 transition-all group">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${pickingCount > 0 ? 'bg-amber-500/10 text-amber-500' : 'bg-slate-800/40 text-slate-500'}`}>
+                                <Box size={20} />
+                              </div>
+                              <div>
+                                <p className={`font-mono text-sm font-black tracking-wide ${pickingCount > 0 ? 'text-amber-500' : 'text-slate-450'}`}>
+                                  {getPendingCountLabel(pickingCount, 'SEPARAÇÃO PENDENTE', 'SEPARAÇÕES PENDENTES')}
+                                </p>
+                                <p className="text-xs text-slate-500">Pedidos prontos para a área de separação física</p>
+                              </div>
+                            </div>
+                            {pickingCount > 0 && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => {
+                                  setActiveTab('logistics_picking_cities');
+                                  setShowLoginPendingAlert(false);
+                                }}
+                                className="h-8 hover:bg-amber-500 hover:text-white border border-amber-500/20 text-xs gap-1 opacity-90 hover:opacity-100 transition-all font-bold text-amber-500"
+                              >
+                                Separar <ChevronRight size={14} />
+                              </Button>
+                            )}
+                          </div>
+                        </>
+                      )}
+
+                      {/* ADMIN ONLY rows */}
+                      {currentUser?.role === 'admin' && (
+                        <>
+                          {/* Faturamentos */}
+                          <div className="flex items-center justify-between p-4 bg-slate-950/40 rounded-xl border border-slate-800 hover:border-purple-500/30 transition-all group">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${faturamentoCount > 0 ? 'bg-purple-500/10 text-purple-500' : 'bg-slate-800/40 text-slate-500'}`}>
+                                <FileText size={20} />
+                              </div>
+                              <div>
+                                <p className={`font-mono text-sm font-black tracking-wide ${faturamentoCount > 0 ? 'text-purple-500' : 'text-slate-450'}`}>
+                                  {getPendingCountLabel(faturamentoCount, 'FATURAMENTO PENDENTE', 'FATURAMENTOS PENDENTES')}
+                                </p>
+                                <p className="text-xs text-slate-500">Pedidos separados aguardando Nota Fiscal de saída</p>
+                              </div>
+                            </div>
+                            {faturamentoCount > 0 && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => {
+                                  setActiveTab('admin_invoicing');
+                                  setShowLoginPendingAlert(false);
+                                }}
+                                className="h-8 hover:bg-purple-500 hover:text-white border border-purple-500/20 text-xs gap-1 opacity-90 hover:opacity-100 transition-all font-bold text-purple-500"
+                              >
+                                Faturar <ChevronRight size={14} />
+                              </Button>
+                            )}
+                          </div>
+
+                          {/* Aprovações */}
+                          <div className="flex items-center justify-between p-4 bg-slate-950/40 rounded-xl border border-slate-800 hover:border-rose-500/30 transition-all group">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${approvalCount > 0 ? 'bg-rose-500/10 text-rose-500' : 'bg-slate-800/40 text-slate-500'}`}>
+                                <CheckCircle2 size={20} />
+                              </div>
+                              <div>
+                                <p className={`font-mono text-sm font-black tracking-wide ${approvalCount > 0 ? 'text-rose-500' : 'text-slate-450'}`}>
+                                  {getPendingCountLabel(approvalCount, 'APROVAÇÃO PENDENTE', 'APROVAÇÕES PENDENTES')}
+                                </p>
+                                <p className="text-xs text-slate-500">Pedidos de filiais aguardando auditoria e aprovação</p>
+                              </div>
+                            </div>
+                            {approvalCount > 0 && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => {
+                                  setActiveTab('admin_approval');
+                                  setShowLoginPendingAlert(false);
+                                }}
+                                className="h-8 hover:bg-rose-500 hover:text-white border border-rose-500/20 text-xs gap-1 opacity-90 hover:opacity-100 transition-all font-bold text-rose-500"
+                              >
+                                Aprovar <ChevronRight size={14} />
+                              </Button>
+                            )}
+                          </div>
+                        </>
+                      )}
+
+                      {/* ADMIN and LOGISTICS rows (receiving & counts) */}
+                      {['admin', 'logistics'].includes(currentUser?.role) && (
+                        <>
+                          {/* Recebimentos */}
+                          <div className="flex items-center justify-between p-4 bg-slate-950/40 rounded-xl border border-slate-800 hover:border-cyan-500/30 transition-all group">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${receivingCount > 0 ? 'bg-cyan-500/10 text-cyan-400' : 'bg-slate-800/40 text-slate-500'}`}>
+                                <ShoppingCart size={20} />
+                              </div>
+                              <div>
+                                <p className={`font-mono text-sm font-black tracking-wide ${receivingCount > 0 ? 'text-cyan-400' : 'text-slate-450'}`}>
+                                  {getPendingCountLabel(receivingCount, 'RECEBIMENTO PENDENTE', 'RECEBIMENTOS PENDENTES')}
+                                </p>
+                                <p className="text-xs text-slate-500">Pedidos de compra aprovados pendentes de recebimento</p>
+                              </div>
+                            </div>
+                            {receivingCount > 0 && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => {
+                                  setActiveTab('logistics_incoming');
+                                  setShowLoginPendingAlert(false);
+                                }}
+                                className="h-8 hover:bg-cyan-500 hover:text-white border border-cyan-500/20 text-xs gap-1 opacity-90 hover:opacity-100 transition-all font-bold text-cyan-500"
+                              >
+                                Receber <ChevronRight size={14} />
+                              </Button>
+                            )}
+                          </div>
+
+                          {/* Contagens de Estoque */}
+                          <div className="flex items-center justify-between p-4 bg-slate-950/40 rounded-xl border border-slate-800 hover:border-emerald-500/30 transition-all group">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${contagensCount > 0 ? 'bg-emerald-500/10 text-emerald-500' : 'bg-slate-800/40 text-slate-500'}`}>
+                                <ClipboardList size={20} />
+                              </div>
+                              <div>
+                                <p className={`font-mono text-sm font-black tracking-wide ${contagensCount > 0 ? 'text-emerald-500' : 'text-slate-450'}`}>
+                                  {getPendingCountLabel(contagensCount, 'CONTAGEM PENDENTE', 'CONTAGENS PENDENTES')}
+                                </p>
+                                <p className="text-xs text-slate-500">Contagens cíclicas de inventário requisitadas</p>
+                              </div>
+                            </div>
+                            {contagensCount > 0 && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => {
+                                  setActiveTab('logistics_counts');
+                                  setShowLoginPendingAlert(false);
+                                }}
+                                className="h-8 hover:bg-emerald-500 hover:text-white border border-emerald-500/20 text-xs gap-1 opacity-90 hover:opacity-100 transition-all font-bold text-emerald-500"
+                              >
+                                Contar <ChevronRight size={14} />
+                              </Button>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
+
+                    {totalPending === 0 && (
+                      <div className="py-6 text-center text-slate-500">
+                        <p className="text-emerald-500 font-bold mb-1">✓ Excelente!</p>
+                        <p className="text-xs">Não há processos pendentes no momento. Tudo atualizado!</p>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
 
@@ -754,7 +760,365 @@ export default function App() {
   );
 }
 
-function DashboardOverview() {
+function DashboardOverview({ setActiveTab }: { setActiveTab: (tab: string) => void }) {
+  const { currentUser } = useRamoxContext();
+  
+  if (currentUser?.role === 'branch') {
+    return <BranchDashboardOverview setActiveTab={setActiveTab} />;
+  }
+  return <MasterDashboardOverview setActiveTab={setActiveTab} />;
+}
+
+function BranchDashboardOverview({ setActiveTab }: { setActiveTab: (tab: string) => void }) {
+  const { currentUser, branchOrders, branches, products, branchLimits } = useRamoxContext();
+  
+  const currentBranch = branches.find(b => b.id === currentUser?.branchId) || {
+    id: currentUser?.branchId || 'b1',
+    name: 'Minha Filial',
+    location: 'Endereço não especificado',
+    manager: currentUser?.name || 'Gerente'
+  };
+
+  // Filter orders specifically for THIS branch!
+  const myBranchOrders = branchOrders.filter(o => o.branchId === currentBranch.id);
+
+  // Status counters for this branch
+  const pendingOrders = myBranchOrders.filter(o => o.status === 'pending' || o.status === 'discrepancy');
+  const approvedOrders = myBranchOrders.filter(o => ['approved', 'picking', 'picked', 'invoiced', 'loading'].includes(o.status));
+  const shippedOrders = myBranchOrders.filter(o => o.status === 'shipped');
+  const deliveredOrders = myBranchOrders.filter(o => o.status === 'delivered');
+  const rejectedOrders = myBranchOrders.filter(o => o.status === 'rejected');
+
+  // Total monetary value requested by this branch
+  const totalValueRequested = myBranchOrders
+    .filter(o => o.status !== 'rejected')
+    .reduce((acc, o) => acc + (o.totalValue || 0), 0);
+
+  // Limits info for this branch
+  const limits = branchLimits?.find(l => l.branchId === currentBranch.id);
+  const maxOrderBudget = limits?.maxOrderBudget || 0;
+
+  // Recent 5 orders for this branch
+  const recentOrders = [...myBranchOrders]
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, 5);
+
+  return (
+    <div className="space-y-8">
+      {/* Welcome Banner for Branch */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 p-6 rounded-2xl bg-gradient-to-r from-slate-900 via-slate-900 to-cyan-950/40 border border-slate-800 shadow-2xl">
+        <div className="flex items-center gap-4">
+          <div className="w-14 h-14 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 font-bold shadow-lg">
+            <Store size={32} />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-2xl font-black text-white tracking-tight">{currentBranch.name}</h2>
+              <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/30 text-xs">Painel da Loja</Badge>
+            </div>
+            <p className="text-slate-400 text-sm mt-0.5">
+              Gestão exclusiva de solicitações, entregas e verbas da sua unidade.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <Button 
+            onClick={() => setActiveTab('branch_catalogue')}
+            className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold px-5 gap-2 shadow-lg shadow-cyan-500/20"
+          >
+            <Plus size={18} /> Novo Pedido
+          </Button>
+          <Button 
+            variant="outline"
+            onClick={() => setActiveTab('branch_orders')}
+            className="border-slate-700 hover:bg-slate-800 text-slate-200 font-bold gap-2"
+          >
+            <HistoryIcon size={18} /> Meus Pedidos ({myBranchOrders.length})
+          </Button>
+        </div>
+      </div>
+
+      {/* Shipped / Pending Receive Prompt Banner if any orders in transit */}
+      {shippedOrders.length > 0 && (
+        <motion.div 
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="p-5 rounded-xl bg-gradient-to-r from-blue-950/80 to-slate-900 border border-blue-500/30 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4"
+        >
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center shrink-0 border border-blue-500/30 animate-pulse">
+              <Truck size={24} />
+            </div>
+            <div>
+              <h4 className="text-base font-bold text-white flex items-center gap-2">
+                Carga em Trânsito a Caminho!
+                <Badge className="bg-blue-500 text-slate-950 font-black">{shippedOrders.length}</Badge>
+              </h4>
+              <p className="text-xs text-slate-300 mt-1">
+                Sua loja possui {shippedOrders.length} pedido(s) despachado(s) pelo almoxarifado central. Ao receber o caminhão na loja, faça a conferência física e confirme o recebimento.
+              </p>
+            </div>
+          </div>
+          <Button 
+            onClick={() => setActiveTab('branch_orders')}
+            className="bg-blue-500 hover:bg-blue-400 text-slate-950 font-bold shrink-0 gap-2"
+          >
+            Conferir Recebimento <ArrowUpRight size={16} />
+          </Button>
+        </motion.div>
+      )}
+
+      {/* Branch Metrics Cards (BI da Filial) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+        <Card className="border-slate-800 bg-slate-900/60 shadow-xl hover:border-slate-700 transition-all">
+          <CardContent className="p-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Total de Pedidos</p>
+                <h3 className="text-3xl font-black text-white mt-1">{myBranchOrders.length}</h3>
+                <p className="text-[11px] text-slate-400 mt-1">Solicitações registradas</p>
+              </div>
+              <div className="w-12 h-12 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center border border-cyan-500/20">
+                <ShoppingCart size={22} />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-800 bg-slate-900/60 shadow-xl hover:border-slate-700 transition-all">
+          <CardContent className="p-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Em Separação / Aprovados</p>
+                <h3 className="text-3xl font-black text-emerald-400 mt-1">{approvedOrders.length}</h3>
+                <p className="text-[11px] text-emerald-400/80 mt-1">Em atendimento na central</p>
+              </div>
+              <div className="w-12 h-12 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center border border-emerald-500/20">
+                <CheckCircle2 size={22} />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-800 bg-slate-900/60 shadow-xl hover:border-slate-700 transition-all">
+          <CardContent className="p-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Entregue na Loja</p>
+                <h3 className="text-3xl font-black text-blue-400 mt-1">{deliveredOrders.length}</h3>
+                <p className="text-[11px] text-blue-400/80 mt-1">Pedidos concluídos</p>
+              </div>
+              <div className="w-12 h-12 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center border border-blue-500/20">
+                <Box size={22} />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-800 bg-slate-900/60 shadow-xl hover:border-slate-700 transition-all">
+          <CardContent className="p-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Cancelados / Rejeitados</p>
+                <h3 className="text-3xl font-black text-rose-400 mt-1">{rejectedOrders.length}</h3>
+                <p className="text-[11px] text-rose-400/80 mt-1">Pedidos não aprovados</p>
+              </div>
+              <div className="w-12 h-12 rounded-xl bg-rose-500/10 text-rose-400 flex items-center justify-center border border-rose-500/20">
+                <XCircle size={22} />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* BI Visual Charts Section for Branch */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Status Breakdown Bar */}
+        <Card className="border-slate-800 bg-slate-900/50 shadow-xl lg:col-span-2">
+          <CardHeader className="border-b border-slate-800/60 pb-4">
+            <CardTitle className="text-base text-white font-bold flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                <TrendingUp size={18} className="text-cyan-400" />
+                BI Operacional: Status dos Pedidos da Filial
+              </span>
+              <Badge variant="outline" className="text-[11px] border-slate-700 text-slate-400">
+                Total Solicitado: R$ {totalValueRequested.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+              </Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-6">
+            <div className="space-y-5">
+              <div>
+                <div className="flex justify-between text-xs text-slate-400 mb-1.5 font-medium">
+                  <span>Aprovados / Em Separação</span>
+                  <span className="font-bold text-emerald-400">{approvedOrders.length} pedido(s) ({myBranchOrders.length > 0 ? Math.round((approvedOrders.length / myBranchOrders.length) * 100) : 0}%)</span>
+                </div>
+                <div className="w-full bg-slate-800 h-2.5 rounded-full overflow-hidden">
+                  <div className="bg-emerald-500 h-full rounded-full transition-all duration-500" style={{ width: `${myBranchOrders.length > 0 ? (approvedOrders.length / myBranchOrders.length) * 100 : 0}%` }} />
+                </div>
+              </div>
+
+              <div>
+                <div className="flex justify-between text-xs text-slate-400 mb-1.5 font-medium">
+                  <span>Pendentes / Em Análise</span>
+                  <span className="font-bold text-amber-400">{pendingOrders.length} pedido(s) ({myBranchOrders.length > 0 ? Math.round((pendingOrders.length / myBranchOrders.length) * 100) : 0}%)</span>
+                </div>
+                <div className="w-full bg-slate-800 h-2.5 rounded-full overflow-hidden">
+                  <div className="bg-amber-500 h-full rounded-full transition-all duration-500" style={{ width: `${myBranchOrders.length > 0 ? (pendingOrders.length / myBranchOrders.length) * 100 : 0}%` }} />
+                </div>
+              </div>
+
+              <div>
+                <div className="flex justify-between text-xs text-slate-400 mb-1.5 font-medium">
+                  <span>Cargas em Trânsito</span>
+                  <span className="font-bold text-blue-400">{shippedOrders.length} pedido(s) ({myBranchOrders.length > 0 ? Math.round((shippedOrders.length / myBranchOrders.length) * 100) : 0}%)</span>
+                </div>
+                <div className="w-full bg-slate-800 h-2.5 rounded-full overflow-hidden">
+                  <div className="bg-blue-500 h-full rounded-full transition-all duration-500" style={{ width: `${myBranchOrders.length > 0 ? (shippedOrders.length / myBranchOrders.length) * 100 : 0}%` }} />
+                </div>
+              </div>
+
+              <div>
+                <div className="flex justify-between text-xs text-slate-400 mb-1.5 font-medium">
+                  <span>Entregues na Loja</span>
+                  <span className="font-bold text-indigo-400">{deliveredOrders.length} pedido(s) ({myBranchOrders.length > 0 ? Math.round((deliveredOrders.length / myBranchOrders.length) * 100) : 0}%)</span>
+                </div>
+                <div className="w-full bg-slate-800 h-2.5 rounded-full overflow-hidden">
+                  <div className="bg-indigo-500 h-full rounded-full transition-all duration-500" style={{ width: `${myBranchOrders.length > 0 ? (deliveredOrders.length / myBranchOrders.length) * 100 : 0}%` }} />
+                </div>
+              </div>
+
+              <div>
+                <div className="flex justify-between text-xs text-slate-400 mb-1.5 font-medium">
+                  <span>Cancelados / Rejeitados</span>
+                  <span className="font-bold text-rose-400">{rejectedOrders.length} pedido(s) ({myBranchOrders.length > 0 ? Math.round((rejectedOrders.length / myBranchOrders.length) * 100) : 0}%)</span>
+                </div>
+                <div className="w-full bg-slate-800 h-2.5 rounded-full overflow-hidden">
+                  <div className="bg-rose-500 h-full rounded-full transition-all duration-500" style={{ width: `${myBranchOrders.length > 0 ? (rejectedOrders.length / myBranchOrders.length) * 100 : 0}%` }} />
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Branch Quota & Spending Info */}
+        <Card className="border-slate-800 bg-slate-900/50 shadow-xl">
+          <CardHeader className="border-b border-slate-800/60 pb-4">
+            <CardTitle className="text-base text-white font-bold flex items-center gap-2">
+              <Sliders size={18} className="text-amber-400" />
+              Limites e Cotas da Loja
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-6 space-y-4">
+            <div className="p-4 rounded-xl bg-slate-800/40 border border-slate-700/50 space-y-1">
+              <p className="text-xs text-slate-400 font-medium">Verba Máxima por Pedido</p>
+              <p className="text-2xl font-black text-amber-400">
+                {maxOrderBudget > 0 ? `R$ ${maxOrderBudget.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : 'Sem Limite Definido'}
+              </p>
+              <p className="text-[11px] text-slate-500">Definido pela coordenação de suprimentos</p>
+            </div>
+
+            <div className="p-4 rounded-xl bg-slate-800/40 border border-slate-700/50 space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-slate-400 font-medium">Total Solicitado no Mês</span>
+                <span className="text-xs font-bold text-white">R$ {totalValueRequested.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+              </div>
+              <p className="text-[11px] text-slate-500">
+                Soma acumulada de todas as solicitações ativas efetuadas pela sua unidade.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Recent Orders Table for Branch */}
+      <Card className="border-slate-800 bg-slate-900/50 shadow-xl">
+        <CardHeader className="border-b border-slate-800/60 pb-4 flex flex-row items-center justify-between">
+          <CardTitle className="text-lg text-white font-bold flex items-center gap-2">
+            <Clock size={18} className="text-cyan-400" />
+            Últimos Pedidos da Filial
+          </CardTitle>
+          <Button 
+            variant="ghost" 
+            size="sm"
+            onClick={() => setActiveTab('branch_orders')}
+            className="text-cyan-400 hover:text-cyan-300 text-xs font-bold gap-1"
+          >
+            Ver Todos <ChevronRight size={14} />
+          </Button>
+        </CardHeader>
+        <CardContent className="pt-6">
+          {recentOrders.length > 0 ? (
+            <div className="space-y-3">
+              {recentOrders.map(o => {
+                const totalItems = o.items.reduce((sum, item) => sum + item.quantity, 0);
+                return (
+                  <div key={o.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-slate-800/40 rounded-xl border border-slate-700/30 hover:bg-slate-800/70 transition-colors gap-3">
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-lg bg-cyan-500/10 text-cyan-400 flex items-center justify-center shrink-0 border border-cyan-500/20">
+                        <ShoppingCart size={20} />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <p className="font-bold text-white font-mono">#{o.id.toUpperCase()}</p>
+                          <span className="text-xs text-slate-400">({totalItems} item{totalItems !== 1 ? 'ns' : ''})</span>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          Criado em {new Date(o.createdAt).toLocaleDateString('pt-BR')} às {new Date(o.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-4 justify-between sm:justify-end">
+                      <p className="text-sm font-bold text-emerald-400">
+                        R$ {o.totalValue?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </p>
+                      <Badge className={
+                        o.status === 'delivered' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
+                        o.status === 'shipped' ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' :
+                        o.status === 'rejected' ? 'bg-rose-500/20 text-rose-400 border-rose-500/30' :
+                        o.status === 'pending' ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' :
+                        'bg-slate-700 text-slate-300'
+                      }>
+                        {o.status === 'delivered' ? 'Entregue' :
+                         o.status === 'shipped' ? 'Em Trânsito' :
+                         o.status === 'rejected' ? 'Cancelado' :
+                         o.status === 'pending' ? 'Pendente' :
+                         o.status === 'approved' ? 'Aprovado' : o.status}
+                      </Badge>
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => setActiveTab('branch_orders')}
+                        className="text-slate-400 hover:text-white"
+                      >
+                        Detalhes
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-12 text-slate-500 gap-3">
+              <ShoppingCart size={40} className="text-cyan-500/20" />
+              <p className="text-sm">Nenhum pedido realizado por esta loja ainda.</p>
+              <Button 
+                onClick={() => setActiveTab('branch_catalogue')}
+                className="bg-cyan-500 text-slate-950 font-bold text-xs mt-2"
+              >
+                Fazer Primeiro Pedido
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function MasterDashboardOverview({ setActiveTab }: { setActiveTab: (tab: string) => void }) {
   const { products, branchOrders, purchaseOrders, distributions } = useRamoxContext();
   
   const lowStock = products.filter(p => p.currentStock <= p.minStock);
@@ -781,21 +1145,21 @@ function DashboardOverview() {
 
   return (
     <div className="space-y-8">
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
-          <div className="flex flex-col gap-1">
-            <h2 className="text-3xl font-bold text-white tracking-tight">Bem-vindo ao MOX</h2>
-            <p className="text-slate-400 font-medium">Visão geral das operações de hoje e projeções de fluxo.</p>
-          </div>
-          <Card className="bg-slate-900 border-slate-800 px-6 py-3 flex items-center gap-4">
-            <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
-              <TrendingUp className="text-emerald-500" size={20} />
-            </div>
-            <div>
-              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Previsão Mensal (Volume)</p>
-              <p className="text-xl font-black text-white">{projectedVolume.toFixed(0)} un</p>
-            </div>
-          </Card>
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+        <div className="flex flex-col gap-1">
+          <h2 className="text-3xl font-bold text-white tracking-tight">Painel Operacional Central</h2>
+          <p className="text-slate-400 font-medium">Visão geral das operações da rede, estoque central e fluxo de abastecimento.</p>
         </div>
+        <Card className="bg-slate-900 border-slate-800 px-6 py-3 flex items-center gap-4">
+          <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+            <TrendingUp className="text-emerald-500" size={20} />
+          </div>
+          <div>
+            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Previsão Mensal (Volume)</p>
+            <p className="text-xl font-black text-white">{projectedVolume.toFixed(0)} un</p>
+          </div>
+        </Card>
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {stats.map((stat, i) => (
@@ -820,7 +1184,7 @@ function DashboardOverview() {
           <CardHeader className="border-b border-slate-800/50 pb-4">
             <CardTitle className="text-lg text-white flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></div>
-              Alertas de Estoque
+              Alertas de Estoque Central
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-6">
@@ -857,7 +1221,7 @@ function DashboardOverview() {
           <CardHeader className="border-b border-slate-800/50 pb-4">
             <CardTitle className="text-lg text-white flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-cyan-500"></div>
-              Últimos Pedidos
+              Últimos Pedidos da Rede
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-6">

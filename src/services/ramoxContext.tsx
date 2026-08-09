@@ -900,6 +900,17 @@ export function useRamox() {
       }
     }
 
+    // Check stock availability
+    for (const item of items) {
+      const product = state.products.find(p => p.id === item.productId);
+      if (product && product.currentStock < item.quantity) {
+        return {
+          success: false,
+          reason: `Estoque disponível insuficiente para o produto "${product.name}". Estoque atual: ${product.currentStock} ${product.unit}(s), solicitado: ${item.quantity}.`
+        };
+      }
+    }
+
     const totalValue = items.reduce((acc, item) => {
       const product = state.products.find(p => p.id === item.productId);
       return acc + (product ? product.price * item.quantity : 0);
@@ -913,12 +924,69 @@ export function useRamox() {
       totalValue,
       createdAt: new Date().toISOString()
     };
-    setState(prev => ({ ...prev, branchOrders: [...prev.branchOrders, newOrder] }));
+
+    let updatedProducts = state.products;
+    if (status !== 'rejected') {
+      // Deduct/reserve quantity immediately from available stock
+      updatedProducts = state.products.map(p => {
+        const item = items.find(i => i.productId === p.id);
+        if (item) {
+          return {
+            ...p,
+            currentStock: Math.max(0, p.currentStock - item.quantity)
+          };
+        }
+        return p;
+      });
+    }
+
+    setState(prev => {
+      const updatedState = {
+        ...prev,
+        products: updatedProducts,
+        branchOrders: [...prev.branchOrders, newOrder]
+      };
+      mockDb.save(updatedState);
+      return updatedState;
+    });
+
+    const client = getSupabase();
+    if (client) {
+      (async () => {
+        try {
+          const targetUUID = toValidUUID(newOrder.id);
+          const orderPayload = {
+            id: targetUUID,
+            branch_id: toValidUUID(branchId),
+            items: items,
+            status: status,
+            total_value: totalValue,
+            created_at: newOrder.createdAt
+          };
+          await client.from('branch_orders').upsert(orderPayload);
+
+          if (status !== 'rejected') {
+            for (const item of items) {
+              const prod = updatedProducts.find(p => p.id === item.productId);
+              if (prod) {
+                await client.from('products').update({ current_stock: prod.currentStock }).eq('id', toValidUUID(prod.id));
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('Supabase createBranchOrder err:', e);
+        }
+      })();
+    }
+
     return { success: true };
   };
 
   const updateBranchOrderStatus = (id: string, status: BranchOrder['status'], approvedBy?: string) => {
     const targetUUID = toValidUUID(id);
+
+    let updatedProductsList: Product[] | null = null;
+    let affectedOrder: BranchOrder | null = null;
 
     setState(prev => {
       const targetOrder = prev.branchOrders.find(o => 
@@ -928,6 +996,9 @@ export function useRamox() {
       );
       if (!targetOrder) return prev;
 
+      affectedOrder = targetOrder;
+      const oldStatus = targetOrder.status;
+
       const updateData: Partial<BranchOrder> = { status };
       if (status === 'approved' && approvedBy) {
         updateData.approvedBy = approvedBy;
@@ -935,12 +1006,23 @@ export function useRamox() {
       }
 
       let updatedProducts = prev.products;
-      if (status === 'shipped' && targetOrder.status !== 'shipped') {
+
+      // If transition is to 'rejected' (cancelled) from active status: return reserved stock to available stock!
+      if (status === 'rejected' && oldStatus !== 'rejected') {
+        updatedProducts = prev.products.map(p => {
+          const item = targetOrder.items.find(i => i.productId === p.id);
+          return item ? { ...p, currentStock: p.currentStock + item.quantity } : p;
+        });
+      }
+      // If re-activated from 'rejected' to active status: deduct/reserve stock again
+      else if (oldStatus === 'rejected' && status !== 'rejected') {
         updatedProducts = prev.products.map(p => {
           const item = targetOrder.items.find(i => i.productId === p.id);
           return item ? { ...p, currentStock: Math.max(0, p.currentStock - item.quantity) } : p;
         });
       }
+
+      updatedProductsList = updatedProducts;
 
       const updatedOrders = prev.branchOrders.map(o => {
         if (
@@ -977,6 +1059,15 @@ export function useRamox() {
           if (error) {
             await client.from('branch_orders').update(updatePayload).eq('id', id);
           }
+
+          if (affectedOrder && updatedProductsList) {
+            for (const item of (affectedOrder as BranchOrder).items) {
+              const prod = (updatedProductsList as Product[]).find(p => p.id === item.productId);
+              if (prod) {
+                await client.from('products').update({ current_stock: prod.currentStock }).eq('id', toValidUUID(prod.id));
+              }
+            }
+          }
         } catch (e) {
           console.warn('Supabase update branch order status err:', e);
         }
@@ -989,9 +1080,27 @@ export function useRamox() {
     const targetId = toValidUUID(id);
     markAsDeleted(targetId);
 
+    let updatedProductsList: Product[] | null = null;
+    let deletedOrder: BranchOrder | null = null;
+
     setState(prev => {
+      const targetOrder = prev.branchOrders.find(o => o.id === id || toValidUUID(o.id) === targetId);
+      deletedOrder = targetOrder || null;
+      let updatedProducts = prev.products;
+
+      if (targetOrder && targetOrder.status !== 'rejected') {
+        // Return reserved stock
+        updatedProducts = prev.products.map(p => {
+          const item = targetOrder.items.find(i => i.productId === p.id);
+          return item ? { ...p, currentStock: p.currentStock + item.quantity } : p;
+        });
+      }
+
+      updatedProductsList = updatedProducts;
+
       const updated = {
         ...prev,
+        products: updatedProducts,
         branchOrders: prev.branchOrders.filter(o => o.id !== id && o.id !== targetId)
       };
       mockDb.save(updated);
@@ -1002,6 +1111,14 @@ export function useRamox() {
     if (client) {
       (async () => {
         try {
+          if (deletedOrder && (deletedOrder as BranchOrder).status !== 'rejected' && updatedProductsList) {
+            for (const item of (deletedOrder as BranchOrder).items) {
+              const prod = (updatedProductsList as Product[]).find(p => p.id === item.productId);
+              if (prod) {
+                await client.from('products').update({ current_stock: prod.currentStock }).eq('id', toValidUUID(prod.id));
+              }
+            }
+          }
           const { error } = await client.from('branch_orders').delete().eq('id', targetId);
           if (error) {
             await client.from('branch_orders').delete().eq('id', id);
@@ -1501,6 +1618,8 @@ export function useRamox() {
   const updateBranchOrderItems = (id: string, items: { productId: string, quantity: number }[]) => {
     const targetUUID = toValidUUID(id);
 
+    let updatedProductsList: Product[] | null = null;
+
     setState(prev => {
       const order = prev.branchOrders.find(o => 
         o.id === id || 
@@ -1509,8 +1628,36 @@ export function useRamox() {
       );
       if (!order) return prev;
       
+      let updatedProducts = prev.products;
+
+      // If order is active (not rejected), adjust stock difference
+      if (order.status !== 'rejected') {
+        const oldMap = new Map<string, number>();
+        order.items.forEach(i => oldMap.set(i.productId, (oldMap.get(i.productId) || 0) + i.quantity));
+
+        const newMap = new Map<string, number>();
+        items.forEach(i => newMap.set(i.productId, (newMap.get(i.productId) || 0) + i.quantity));
+
+        const allProductIds = new Set([...oldMap.keys(), ...newMap.keys()]);
+
+        updatedProducts = prev.products.map(p => {
+          if (allProductIds.has(p.id)) {
+            const oldQty = oldMap.get(p.id) || 0;
+            const newQty = newMap.get(p.id) || 0;
+            const diff = oldQty - newQty; // positive diff means return to stock, negative means deduct
+            return {
+              ...p,
+              currentStock: Math.max(0, p.currentStock + diff)
+            };
+          }
+          return p;
+        });
+      }
+
+      updatedProductsList = updatedProducts;
+
       const totalValue = items.reduce((acc, item) => {
-        const product = prev.products.find(p => p.id === item.productId);
+        const product = updatedProducts.find(p => p.id === item.productId);
         return acc + (product ? product.price * item.quantity : 0);
       }, 0);
 
@@ -1522,6 +1669,7 @@ export function useRamox() {
 
       const newState = {
         ...prev,
+        products: updatedProducts,
         branchOrders: updatedOrders
       };
       mockDb.save(newState);
@@ -1539,6 +1687,12 @@ export function useRamox() {
           const { error } = await client.from('branch_orders').update({ items, total_value: totalValue }).eq('id', targetUUID);
           if (error) {
             await client.from('branch_orders').update({ items, total_value: totalValue }).eq('id', id);
+          }
+
+          if (updatedProductsList) {
+            for (const prod of (updatedProductsList as Product[])) {
+              await client.from('products').update({ current_stock: prod.currentStock }).eq('id', toValidUUID(prod.id));
+            }
           }
         } catch (e) {
           console.warn('Supabase update branch order items err:', e);

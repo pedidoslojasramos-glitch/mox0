@@ -87,11 +87,18 @@ export default function OutboundModule({ initialTab }: { initialTab?: string }) 
 }
 
 function OutboundHistoryTab() {
-  const { distributions, branches, products } = useRamoxContext();
+  const { distributions, branches, products, currentUser } = useRamoxContext();
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
 
   const filtered = distributions.filter(d => {
+    if (currentUser?.role === 'branch') {
+      const targetBranchId = currentUser.branchId;
+      const isForBranch = d.branchId === targetBranchId || 
+        d.recipients?.[targetBranchId || ''] || 
+        d.items?.some(i => i.quantityPerBranch?.some(q => q.branchId === targetBranchId && q.quantity > 0));
+      if (!isForBranch) return false;
+    }
     const branch = branches.find(b => b.id === d.branchId);
     const search = searchTerm.toLowerCase();
     return d.id.toLowerCase().includes(search) || 

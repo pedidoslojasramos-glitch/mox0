@@ -109,7 +109,7 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
       order.approvedBy || 'Administrador Central',
       settings?.companyLogo
     );
-    if (order.status === 'approved' || order.status === 'pending') {
+    if (order.status === 'approved') {
       updateBranchOrderStatus(order.id, 'picking');
     }
     toast.success(`Folha de Separação Manual (Picking) emitida para o Pedido #${order.id.toUpperCase()}!`);
@@ -198,7 +198,7 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
            branch?.location.toLowerCase().includes(search);
   });
 
-  const pickingCitiesOrders = filteredOrders.filter(o => o.status === 'pending' || o.status === 'approved' || o.status === 'picking');
+  const pickingCitiesOrders = filteredOrders.filter(o => o.status === 'approved' || o.status === 'picking');
   const loadingOrders = filteredOrders.filter(o => o.status === 'picked' || o.status === 'invoiced' || o.status === 'loading');
   const finishedOrders = filteredOrders.filter(o => o.status === 'shipped' || o.status === 'delivered');
   
@@ -242,17 +242,17 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
   };
 
   const handleCancelSinglePicking = (order: any) => {
-    updateBranchOrderStatus(order.id, 'pending');
-    toast.info(`Separação do Pedido #${order.id.toUpperCase()} cancelada. O pedido retornou para o status Pendente.`);
+    updateBranchOrderStatus(order.id, 'approved');
+    toast.info(`Separação do Pedido #${order.id.toUpperCase()} cancelada. O pedido retornou ao status Aprovado.`);
   };
 
   const handleBatchCancelPicking = () => {
     if (selectedPickingOrderIds.length === 0) return;
     const count = selectedPickingOrderIds.length;
     selectedPickingOrderIds.forEach(id => {
-      updateBranchOrderStatus(id, 'pending');
+      updateBranchOrderStatus(id, 'approved');
     });
-    toast.info(`${count} separação(ões) cancelada(s). Os pedidos retornaram ao status Pendente.`);
+    toast.info(`${count} separação(ões) cancelada(s). Os pedidos retornaram ao status Aprovado.`);
     setSelectedPickingOrderIds([]);
   };
 
@@ -513,7 +513,7 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                               {/* Separação Automática / Digital */}
                               <Button 
                                 onClick={() => {
-                                  if (order.status === 'approved' || order.status === 'pending') {
+                                  if (order.status === 'approved') {
                                     updateBranchOrderStatus(order.id, 'picking');
                                   }
                                   setPickedQuantities({});

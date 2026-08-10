@@ -46,6 +46,7 @@ import {
 import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
+import { DEFAULT_LOJAS_RAMOS_LOGO } from './utils/lojasRamosLogos';
 
 // Modules
 import AdminModule from './modules/AdminModule';
@@ -79,7 +80,7 @@ export default function App() {
   const [showLoginPendingAlert, setShowLoginPendingAlert] = useState<boolean>(false);
 
   // Calculate pending process statistics across the system
-  const pickingCount = branchOrders.filter(o => o.status === 'pending' || o.status === 'approved' || o.status === 'picking').length;
+  const pickingCount = branchOrders.filter(o => o.status === 'approved' || o.status === 'picking').length;
   const faturamentoCount = branchOrders.filter(o => o.status === 'picked').length;
   const approvalCount = branchOrders.filter(o => o.status === 'pending' || o.status === 'discrepancy').length;
   const receivingCount = purchaseOrders.filter(o => o.status === 'approved' || o.status === 'pending').length;
@@ -336,20 +337,22 @@ export default function App() {
                 <X size={20} />
               </button>
 
-              <div className="flex flex-col gap-4">
-                {settings?.companyLogo ? (
-                  <div className="w-full h-24 bg-slate-800 rounded-lg border border-slate-700 flex items-center justify-center overflow-hidden shadow-inner p-3">
-                    <img src={settings.companyLogo} alt="Logo" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
-                  </div>
-                ) : (
-                  <div className="w-14 h-14 bg-cyan-500 rounded-lg flex items-center justify-center text-white font-bold text-3xl shadow-[0_0_20px_rgba(6,182,212,0.4)]">
-                    R
-                  </div>
-                )}
-              <div>
-                <h1 className="font-bold text-3xl tracking-tight text-white">MOX</h1>
-                <p className="text-[11px] text-cyan-400 font-bold uppercase tracking-[0.1em] mt-1">Gestão de Almoxarifado</p>
-              </div>
+              <div className="flex flex-col gap-3">
+                <div className="w-full h-24 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-center overflow-hidden shadow-xl p-2.5">
+                  <img 
+                    src={settings?.companyLogo || DEFAULT_LOJAS_RAMOS_LOGO} 
+                    alt="Logo Lojas Ramos" 
+                    className="w-full h-full object-contain" 
+                    referrerPolicy="no-referrer" 
+                  />
+                </div>
+                <div>
+                  <h1 className="font-bold text-2xl tracking-tight text-white flex items-center gap-1.5">
+                    <span>MOX</span>
+                    <span className="text-[10px] bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 font-mono px-2 py-0.5 rounded-full font-bold">Lojas Ramos</span>
+                  </h1>
+                  <p className="text-[11px] text-cyan-400 font-bold uppercase tracking-[0.1em] mt-0.5">Gestão de Almoxarifado</p>
+                </div>
               </div>
             </div>
 

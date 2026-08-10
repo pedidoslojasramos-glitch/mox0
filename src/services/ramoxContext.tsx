@@ -1776,6 +1776,19 @@ export function useRamox() {
     });
   };
 
+  const setRouteBranches = (dayKey: string, branchIds: string[]) => {
+    setState(prev => {
+      const currentRoutes = prev.deliveryRoutes || [];
+      const updatedRoutes = currentRoutes.map(r => {
+        if (r.dayKey === dayKey) {
+          return { ...r, branchIds };
+        }
+        return r;
+      });
+      return { ...prev, deliveryRoutes: updatedRoutes };
+    });
+  };
+
   return {
     ...state,
     login,
@@ -1812,6 +1825,7 @@ export function useRamox() {
     removeBranchFromRoute,
     updateRouteDetails,
     clearRouteDay,
+    setRouteBranches,
     globalSearch,
     setGlobalSearch,
     refreshData,

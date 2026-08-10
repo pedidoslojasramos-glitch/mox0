@@ -1,4 +1,5 @@
 import { Product, Supplier, PurchaseOrder, Branch, BranchOrder, User, UserRole, Distribution, BranchLimits, DeliveryRoute } from '../types';
+import { DEFAULT_LOJAS_RAMOS_LOGO } from '../utils/lojasRamosLogos';
 
 const STORAGE_KEY = 'ramox_data';
 const SESSION_KEY = 'ramox_session_v1';
@@ -71,7 +72,7 @@ const initialState: DbState = {
   ],
   currentUser: null,
   settings: {
-    companyLogo: '',
+    companyLogo: DEFAULT_LOJAS_RAMOS_LOGO,
     vignetteEnabled: true,
     vignetteWords: ['Agilidade', 'Precisão', 'Controle'],
   },

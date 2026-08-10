@@ -23,8 +23,10 @@ import {
   AlertTriangle,
   Copy,
   Terminal,
-  Pencil
+  Pencil,
+  Check
 } from 'lucide-react';
+import { LOJAS_RAMOS_LOGOS, DEFAULT_LOJAS_RAMOS_LOGO } from '../utils/lojasRamosLogos';
 import { 
   Dialog, 
   DialogContent, 
@@ -547,60 +549,129 @@ DO $$ BEGIN CREATE POLICY "Allow public read-write for purchase_orders" ON publi
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="space-y-4">
-                <Label>Logo da Empresa</Label>
-                <div className="flex items-center gap-8 p-6 border-2 border-dashed border-slate-200 rounded-lg bg-slate-50/50">
-                  <div className="w-32 h-32 bg-white rounded-lg border border-slate-200 flex items-center justify-center overflow-hidden shadow-sm">
+                <Label className="text-base font-bold text-slate-900">Logo Ativa no Sistema</Label>
+                <div className="flex flex-col sm:flex-row items-center gap-6 p-6 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50/50">
+                  <div className="w-48 h-24 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-center overflow-hidden shadow-lg p-2 shrink-0">
                     {settings?.companyLogo ? (
-                      <img src={settings.companyLogo} alt="Logo" className="w-full h-full object-contain p-2" referrerPolicy="no-referrer" />
+                      <img src={settings.companyLogo} alt="Logo Lojas Ramos" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
                     ) : (
-                      <div className="flex flex-col items-center text-slate-400">
-                        <ImageIcon size={32} strokeWidth={1.5} />
-                        <span className="text-[10px] mt-1 font-bold uppercase tracking-wider">Sem Logo</span>
-                      </div>
+                      <img src={DEFAULT_LOJAS_RAMOS_LOGO} alt="Logo Lojas Ramos Padrão" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
                     )}
                   </div>
                   <div className="flex-1 space-y-3">
-                    <p className="text-sm text-slate-500">
-                      Envie uma imagem em formato PNG ou JPG. Recomendamos o uso de uma logo com fundo transparente.
+                    <p className="text-xs sm:text-sm text-slate-600 font-medium leading-relaxed">
+                      Esta é a logo exibida no menu superior esquerdo, nos relatórios, pedidos de compra, etiquetas de caixa e romaneios em PDF de Lojas Ramos.
                     </p>
-                    <div className="flex gap-2">
-                      <Button variant="outline" className="relative overflow-hidden cursor-pointer">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button variant="outline" className="relative overflow-hidden cursor-pointer bg-white text-slate-700 font-bold text-xs h-9">
                         <input 
                           type="file" 
                           accept="image/*" 
                           className="absolute inset-0 opacity-0 cursor-pointer" 
                           onChange={handleLogoChange}
                         />
-                        Alterar Logo
+                        Fazer Upload de Nova Logo
                       </Button>
+
+                      <Button 
+                        variant="outline"
+                        onClick={() => {
+                          updateSettings({ companyLogo: DEFAULT_LOJAS_RAMOS_LOGO });
+                          toast.success('Logo oficial Lojas Ramos redefinida como padrão!');
+                        }}
+                        className="bg-cyan-50 text-cyan-700 border-cyan-200 hover:bg-cyan-100 font-bold text-xs h-9"
+                      >
+                        Restaurar Padrão Lojas Ramos
+                      </Button>
+
                       {settings?.companyLogo && (
-                        <>
-                          <Button 
-                            variant="outline" 
-                            className="border-slate-200 text-slate-700 hover:bg-slate-100 flex gap-1.5"
-                            onClick={() => {
-                              try {
-                                const link = document.createElement('a');
-                                link.href = settings.companyLogo;
-                                link.download = 'logo_empresa.png';
-                                document.body.appendChild(link);
-                                link.click();
-                                document.body.removeChild(link);
-                                toast.success('Logo exportada com sucesso!');
-                              } catch (e) {
-                                toast.error('Erro ao exportar logo');
-                              }
-                            }}
-                          >
-                            <Download size={14} /> Exportar Logo
-                          </Button>
-                          <Button variant="ghost" className="text-red-500" onClick={() => updateSettings({ companyLogo: '' })}>
-                            Remover
-                          </Button>
-                        </>
+                        <Button 
+                          variant="outline" 
+                          className="border-slate-200 text-slate-700 hover:bg-slate-100 flex gap-1.5 text-xs h-9 font-bold"
+                          onClick={() => {
+                            try {
+                              const link = document.createElement('a');
+                              link.href = settings.companyLogo;
+                              link.download = 'logo_lojas_ramos.png';
+                              document.body.appendChild(link);
+                              link.click();
+                              document.body.removeChild(link);
+                              toast.success('Logo exportada com sucesso!');
+                            } catch (e) {
+                              toast.error('Erro ao exportar logo');
+                            }
+                          }}
+                        >
+                          <Download size={14} /> Exportar Logo
+                        </Button>
                       )}
                     </div>
                   </div>
+                </div>
+              </div>
+
+              {/* Pre-defined Lojas Ramos Logos Gallery */}
+              <div className="space-y-4 pt-6 border-t border-slate-200">
+                <div>
+                  <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
+                    <ImageIcon className="text-cyan-600" size={18} />
+                    <span>Logos das Lojas Ramos Disponíveis</span>
+                  </h3>
+                  <p className="text-xs sm:text-sm text-slate-500 mt-1">
+                    Escolha uma das opções de logo pré-configuradas para a rede Lojas Ramos e aplique instantaneamente em todo o sistema.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {LOJAS_RAMOS_LOGOS.map((logo) => {
+                    const isSelected = (settings?.companyLogo || DEFAULT_LOJAS_RAMOS_LOGO) === logo.svgDataUri;
+                    return (
+                      <div 
+                        key={logo.id}
+                        className={`border rounded-xl p-4 flex flex-col justify-between gap-3 transition-all ${
+                          isSelected 
+                            ? 'border-cyan-500 bg-cyan-50/30 shadow-md ring-2 ring-cyan-500/20' 
+                            : 'border-slate-200 bg-white hover:border-slate-300'
+                        }`}
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-bold text-sm text-slate-900">{logo.name}</span>
+                            <Badge className={isSelected ? 'bg-cyan-600 text-white font-bold' : 'bg-slate-100 text-slate-600 font-bold'}>
+                              {logo.tag}
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-slate-500 leading-relaxed">{logo.description}</p>
+                        </div>
+
+                        {/* Preview Box */}
+                        <div className="w-full h-24 bg-slate-950 rounded-lg p-3 flex items-center justify-center shadow-inner overflow-hidden border border-slate-800">
+                          <img src={logo.svgDataUri} alt={logo.name} className="w-full h-full object-contain" referrerPolicy="no-referrer" />
+                        </div>
+
+                        <Button
+                          onClick={() => {
+                            updateSettings({ companyLogo: logo.svgDataUri });
+                            toast.success(`Logo "${logo.name}" aplicada com sucesso!`);
+                          }}
+                          variant={isSelected ? "default" : "outline"}
+                          className={`w-full font-bold h-9 text-xs flex items-center justify-center gap-1.5 ${
+                            isSelected 
+                              ? 'bg-cyan-600 hover:bg-cyan-500 text-white shadow-sm' 
+                              : 'border-slate-300 hover:bg-slate-50 text-slate-700'
+                          }`}
+                        >
+                          {isSelected ? (
+                            <>
+                              <Check size={14} /> Logo Ativa
+                            </>
+                          ) : (
+                            'Aplicar esta Logo'
+                          )}
+                        </Button>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </CardContent>

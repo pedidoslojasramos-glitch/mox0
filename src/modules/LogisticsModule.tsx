@@ -108,7 +108,7 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
       order.approvedBy || 'Administrador Central',
       settings?.companyLogo
     );
-    if (order.status === 'approved') {
+    if (order.status === 'approved' || order.status === 'pending') {
       updateBranchOrderStatus(order.id, 'picking');
     }
     toast.success(`Folha de Separação Manual (Picking) emitida para o Pedido #${order.id.toUpperCase()}!`);
@@ -195,12 +195,12 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
            branch?.location.toLowerCase().includes(search);
   });
 
-  const pickingCitiesOrders = filteredOrders.filter(o => o.status === 'approved' || o.status === 'picking');
-  const loadingOrders = filteredOrders.filter(o => o.status === 'invoiced' || o.status === 'loading');
+  const pickingCitiesOrders = filteredOrders.filter(o => o.status === 'pending' || o.status === 'approved' || o.status === 'picking');
+  const loadingOrders = filteredOrders.filter(o => o.status === 'picked' || o.status === 'invoiced' || o.status === 'loading');
   const finishedOrders = filteredOrders.filter(o => o.status === 'shipped' || o.status === 'delivered');
   
   const pendingCounts = inventoryCounts.filter(c => c.status === 'pending');
-  const incomingPurchases = purchaseOrders.filter(o => o.status === 'approved');
+  const incomingPurchases = purchaseOrders.filter(o => o.status === 'approved' || o.status === 'pending' || o.status === 'checked');
 
   const [currentPickingPage, setCurrentPickingPage] = useState(1);
   const [currentReadyPage, setCurrentReadyPage] = useState(1);
@@ -491,8 +491,10 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                           <TableCell className="text-center">
                             {order.status === 'picking' ? (
                               <Badge className="bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-bold">Em Separação</Badge>
+                            ) : order.status === 'approved' ? (
+                              <Badge className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">Aprovado</Badge>
                             ) : (
-                              <Badge className="bg-amber-500/10 text-amber-500 border border-amber-500/20 font-bold">Aguardando</Badge>
+                              <Badge className="bg-amber-500/10 text-amber-500 border border-amber-500/20 font-bold">Pendente</Badge>
                             )}
                           </TableCell>
                           <TableCell className="text-center font-bold text-slate-300">{totalQty} {totalQty === 1 ? 'UN' : 'UNs'}</TableCell>
@@ -501,7 +503,7 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                               {/* Separação Automática / Digital */}
                               <Button 
                                 onClick={() => {
-                                  if (order.status === 'approved') {
+                                  if (order.status === 'approved' || order.status === 'pending') {
                                     updateBranchOrderStatus(order.id, 'picking');
                                   }
                                   setPickedQuantities({});

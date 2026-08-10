@@ -78,10 +78,10 @@ export default function App() {
   const [showLoginPendingAlert, setShowLoginPendingAlert] = useState<boolean>(false);
 
   // Calculate pending process statistics across the system
-  const pickingCount = branchOrders.filter(o => o.status === 'approved' || o.status === 'picking').length;
+  const pickingCount = branchOrders.filter(o => o.status === 'pending' || o.status === 'approved' || o.status === 'picking').length;
   const faturamentoCount = branchOrders.filter(o => o.status === 'picked').length;
   const approvalCount = branchOrders.filter(o => o.status === 'pending' || o.status === 'discrepancy').length;
-  const receivingCount = purchaseOrders.filter(o => o.status === 'approved').length;
+  const receivingCount = purchaseOrders.filter(o => o.status === 'approved' || o.status === 'pending').length;
   const contagensCount = inventoryCounts.filter(c => c.status === 'pending').length;
 
   // Calculate pending process statistics for the branch user
@@ -210,15 +210,15 @@ export default function App() {
       id: 'admin', 
       label: 'Administrativo', 
       icon: Users, 
-      roles: ['admin'],
+      roles: ['admin', 'logistics'],
       children: [
-        { id: 'admin_products', label: 'Produtos', icon: Package, roles: ['admin'] },
+        { id: 'admin_products', label: 'Produtos', icon: Package, roles: ['admin', 'logistics'] },
         { id: 'admin_suppliers', label: 'Fornecedores', icon: Users, roles: ['admin'] },
-        { id: 'admin_purchases', label: 'Pedidos de Compra', icon: ShoppingCart, roles: ['admin'] },
-        { id: 'admin_approval', label: 'Aprovação Pedidos', icon: CheckCircle2, roles: ['admin'] },
-        { id: 'admin_invoicing', label: 'Faturamento', icon: FileText, roles: ['admin'] },
-        { id: 'admin_inventory', label: 'Estoque Central', icon: ClipboardList, roles: ['admin'] },
-        { id: 'admin_distribution', label: 'Distribuição', icon: Share2, roles: ['admin'] },
+        { id: 'admin_purchases', label: 'Pedidos de Compra', icon: ShoppingCart, roles: ['admin', 'logistics'] },
+        { id: 'admin_approval', label: 'Aprovação Pedidos', icon: CheckCircle2, roles: ['admin', 'logistics'] },
+        { id: 'admin_invoicing', label: 'Faturamento', icon: FileText, roles: ['admin', 'logistics'] },
+        { id: 'admin_inventory', label: 'Estoque Central', icon: ClipboardList, roles: ['admin', 'logistics'] },
+        { id: 'admin_distribution', label: 'Distribuição', icon: Share2, roles: ['admin', 'logistics'] },
         { id: 'admin_limits', label: 'Limites e Cotas', icon: Sliders, roles: ['admin'] },
       ]
     },
@@ -227,10 +227,10 @@ export default function App() {
       id: 'outbound',
       label: 'Saídas',
       icon: HistoryIcon,
-      roles: ['admin', 'branch'],
+      roles: ['admin', 'branch', 'logistics'],
       children: [
-        { id: 'outbound_history', label: 'Histórico Saídas', icon: HistoryIcon, roles: ['admin', 'branch'] },
-        { id: 'outbound_insights', label: 'Insights de Fluxo', icon: TrendingUp, roles: ['admin'] },
+        { id: 'outbound_history', label: 'Histórico Saídas', icon: HistoryIcon, roles: ['admin', 'branch', 'logistics'] },
+        { id: 'outbound_insights', label: 'Insights de Fluxo', icon: TrendingUp, roles: ['admin', 'logistics'] },
       ]
     },
 

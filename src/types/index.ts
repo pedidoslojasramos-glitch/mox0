@@ -48,6 +48,7 @@ export interface Branch {
   name: string;
   location: string;
   manager: string;
+  code?: string;
 }
 
 export interface BranchLimits {

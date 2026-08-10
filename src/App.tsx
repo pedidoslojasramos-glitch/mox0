@@ -28,6 +28,7 @@ import {
   ChevronRight,
   Sliders,
   XCircle,
+  RotateCw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -64,12 +65,14 @@ export default function App() {
     setGlobalSearch,
     branchOrders = [],
     purchaseOrders = [],
-    inventoryCounts = []
+    inventoryCounts = [],
+    refreshData
   } = useRamoxContext();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [expandedSections, setExpandedSections] = useState<string[]>([]);
   const [showVignette, setShowVignette] = useState<boolean>(false);
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
 
   const [lastLoggedInUserId, setLastLoggedInUserId] = useState<string | null>(null);
   const [showLoginPendingAlert, setShowLoginPendingAlert] = useState<boolean>(false);
@@ -362,6 +365,9 @@ export default function App() {
                         } else {
                           setActiveTab(section.id);
                         }
+                        if (refreshData) {
+                          refreshData();
+                        }
                       }}
                       className={`sidebar-item w-full flex items-center justify-between group ${isActive && !hasChildren ? 'active' : ''} ${isActive && hasChildren ? 'text-white bg-slate-800/50' : ''}`}
                     >
@@ -386,7 +392,12 @@ export default function App() {
                           {section.children.filter(child => child.roles.includes(currentUser.role)).map((child) => (
                             <button
                               key={child.id}
-                              onClick={() => setActiveTab(child.id)}
+                              onClick={() => {
+                                setActiveTab(child.id);
+                                if (refreshData) {
+                                  refreshData();
+                                }
+                              }}
                               className={`sidebar-item w-full ml-4 w-[calc(100%-1rem)] py-2 text-sm ${activeTab === child.id ? 'active text-cyan-400' : 'text-slate-400 hover:text-slate-200'}`}
                             >
                               <child.icon size={16} />
@@ -440,6 +451,24 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-3">
+            <Button 
+              variant="ghost" 
+              size="sm"
+              onClick={async () => {
+                setIsRefreshing(true);
+                if (refreshData) {
+                  await refreshData();
+                }
+                toast.success('Dados atualizados com sucesso!');
+                setTimeout(() => setIsRefreshing(false), 600);
+              }}
+              className="text-slate-400 hover:text-cyan-400 hover:bg-slate-800 gap-1.5 text-xs font-semibold px-2.5 h-9"
+              title="Recarregar Dados"
+            >
+              <RotateCw size={15} className={isRefreshing ? 'animate-spin text-cyan-400' : ''} />
+              <span className="hidden sm:inline">Atualizar</span>
+            </Button>
+
             <Button 
               variant="ghost" 
               size="icon" 

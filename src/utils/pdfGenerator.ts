@@ -1207,7 +1207,9 @@ export function generateEpiTermPDF(
 
   activeBranchIds.forEach((branchId) => {
     const branch = branches.find(b => b.id === branchId);
-    const recipientName = distribution.recipients?.[branchId] || branch?.manager || '___________________________';
+    const recipientName = (distribution.recipients?.[branchId] || branch?.manager || '___________________________').toUpperCase();
+    const branchNameUpper = (branch?.name || 'SUCURSAL').toUpperCase();
+    const formattedDate = new Date(distribution.createdAt).toLocaleDateString('pt-BR');
 
     // Collect items for this branch
     const branchItems = distribution.items.map((item: any) => {
@@ -1215,10 +1217,11 @@ export function generateEpiTermPDF(
       const qInfo = item.quantityPerBranch.find((q: any) => q.branchId === branchId);
       if (qInfo && qInfo.quantity > 0) {
         return {
-          productName: prod?.name || 'EPI',
-          code: prod?.code || '',
-          unit: prod?.unit || 'un',
-          quantity: qInfo.quantity
+          productName: (prod?.name || 'EPI').toUpperCase(),
+          code: (prod?.code || '').toUpperCase(),
+          unit: (prod?.unit || 'UN').toUpperCase(),
+          quantity: qInfo.quantity,
+          category: (prod?.category || '').toUpperCase()
         };
       }
       return null;
@@ -1231,155 +1234,196 @@ export function generateEpiTermPDF(
     }
     pageAdded = true;
 
-    // Header
-    addHeaderWithLogo(
-      doc,
-      'TERMO DE RECEBIMENTO E RESPONSABILIDADE DE EPI',
-      'Controle de Entrega de Equipamentos de Proteção Individual',
-      `DIST-${distId}`,
-      companyLogo,
-      'EPI / SEGURANÇA'
-    );
+    let yPos = 15;
 
-    let yPos = 43;
-
-    // Info Box (Sucursal & Beneficiario)
-    doc.setFillColor(241, 245, 249);
-    doc.setDrawColor(203, 213, 225);
-    doc.roundedRect(12, yPos, 186, 22, 2, 2, 'FD');
-
+    // TITLE: FICHA DE CONTROLE DE UNIFORME E EPI
     doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(8);
-    doc.setTextColor(100, 116, 139);
-    doc.text('EMPRESA / SUCURSAL:', 16, yPos + 6, { maxWidth: 88 });
-    doc.setFontSize(10);
-    doc.setTextColor(15, 23, 42);
-    doc.text(`Lojas Ramos - ${branch?.name || 'Sucursal'}`, 16, yPos + 12, { maxWidth: 88 });
-    doc.setFont('Helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(71, 85, 105);
-    doc.text(branch?.location || '', 16, yPos + 17, { maxWidth: 88 });
+    doc.setFontSize(14);
+    doc.setTextColor(0, 0, 0);
+    doc.text('FICHA DE CONTROLE DE UNIFORME E EPI', 105, yPos, { align: 'center' });
 
-    doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(8);
-    doc.setTextColor(100, 116, 139);
-    doc.text('BENEFICIÁRIO / RECEBEDOR ÚNICO:', 110, yPos + 6, { maxWidth: 84 });
-    doc.setFontSize(10);
-    doc.setTextColor(6, 95, 70); // emerald-800
-    doc.text(recipientName, 110, yPos + 12, { maxWidth: 84 });
-    doc.setFont('Helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(71, 85, 105);
-    doc.text(`Data: ${new Date(distribution.createdAt).toLocaleDateString('pt-BR')}`, 110, yPos + 17, { maxWidth: 84 });
+    yPos += 10;
 
-    yPos += 28;
-
-    // Table of items
-    doc.setFont('Helvetica', 'bold');
+    // HEADER FIELDS BLOCK
     doc.setFontSize(9);
-    doc.setTextColor(15, 23, 42);
-    doc.text('Equipamentos de Proteção Individual (EPI) Entregues:', 12, yPos);
-    yPos += 4;
+    
+    // Row 1: Nome, Data de Admissão, Matrícula
+    doc.setFont('Helvetica', 'normal');
+    doc.text('Nome: ', 10, yPos);
+    doc.setFont('Helvetica', 'bold');
+    doc.text(recipientName, 22, yPos);
+    const nameWidth = doc.getTextWidth(recipientName);
+    doc.setLineWidth(0.3);
+    doc.setDrawColor(0, 0, 0);
+    doc.line(22, yPos + 0.6, Math.max(80, 22 + nameWidth), yPos + 0.6);
 
-    const tableBody = branchItems.map((bi: any) => [
+    doc.setFont('Helvetica', 'normal');
+    doc.text('Data de Admissão: ', 86, yPos);
+    doc.setFont('Helvetica', 'bold');
+    doc.text(formattedDate, 114, yPos);
+    doc.line(114, yPos + 0.6, 134, yPos + 0.6);
+
+    doc.setFont('Helvetica', 'normal');
+    doc.text('Matrícula: ', 138, yPos);
+    doc.setFont('Helvetica', 'bold');
+    const matriculaStr = branch?.code ? branch.code.toUpperCase() : '00194';
+    doc.text(matriculaStr, 153, yPos);
+    doc.line(153, yPos + 0.6, 175, yPos + 0.6);
+
+    // Row 2: Empresa, Função, N.º do Calçado
+    yPos += 6;
+    doc.setFont('Helvetica', 'normal');
+    doc.text('Empresa: ', 10, yPos);
+    doc.setFont('Helvetica', 'bold');
+    const companyStr = `RAMOS SERVIÇOS ADMINISTRATIVO ${branchNameUpper} SA`;
+    doc.text(companyStr, 25, yPos);
+    doc.line(25, yPos + 0.6, 105, yPos + 0.6);
+
+    doc.setFont('Helvetica', 'normal');
+    doc.text('Função: ', 108, yPos);
+    doc.setFont('Helvetica', 'bold');
+    doc.text('AUX.ADMINISTRATIVO', 121, yPos);
+    doc.line(121, yPos + 0.6, 150, yPos + 0.6);
+
+    doc.setFont('Helvetica', 'normal');
+    doc.text('N.º do Calçado: ', 153, yPos);
+    doc.line(177, yPos + 0.6, 195, yPos + 0.6);
+
+    // Row 3: Manequim, Camisa, Capa
+    yPos += 6;
+    doc.setFont('Helvetica', 'normal');
+    doc.text('Manequim: ______', 10, yPos);
+    doc.text('Camisa: ______', 45, yPos);
+    doc.text('Capa: ___________________________', 80, yPos);
+
+    // SECTION TITLE: TERMO DE RESPONSABILIDADE
+    yPos += 12;
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(13);
+    doc.text('TERMO DE RESPONSABILIDADE', 105, yPos, { align: 'center' });
+
+    // DECLARATION PARAGRAPH
+    yPos += 7;
+    doc.setFont('Helvetica', 'normal');
+    doc.setFontSize(7.5);
+
+    const decl1 = 'Declaro que assumo total responsabilidade pela guarda e conservação do Equipamento de Proteção Individual abaixo descrito, e que recebi orientação sobre o seu uso correto, tomando os seguintes conhecimentos:';
+    const splitDecl1 = doc.splitTextToSize(decl1, 190);
+    doc.text(splitDecl1, 10, yPos);
+    yPos += splitDecl1.length * 3.2;
+
+    doc.text('-   Sou obrigado a usá-lo somente para a finalidade a que se destina;', 10, yPos);
+    yPos += 3.2;
+    doc.text('-   Sou obrigado a comunicar ao chefe imediato qualquer alteração que o torne impróprio para o uso ou seu extravio;', 10, yPos);
+    yPos += 3.2;
+    doc.text('-   Sou obrigado a devolvê-lo quando da rescisão do contrato de trabalho ou quando do período de troca.', 10, yPos);
+    yPos += 3.2;
+
+    const decl2 = 'CLT – Art. 462 § 1º Em caso de dano causado pelo empregado, o desconto será lícito, desde que a possibilidade tenha sido acordada, ou na ocorrência de dolo do empregado.';
+    const splitDecl2 = doc.splitTextToSize(decl2, 190);
+    doc.text(splitDecl2, 10, yPos);
+    yPos += splitDecl2.length * 3.2 + 8;
+
+    // SIGNATURE / LOCATION PRE-TABLE BLOCK
+    // Left: Local
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.text(branchNameUpper, 35, yPos, { align: 'center' });
+    doc.line(15, yPos + 0.6, 55, yPos + 0.6);
+    doc.setFont('Helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.text('Local', 35, yPos + 4, { align: 'center' });
+
+    // Middle: Data
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.line(80, yPos + 0.6, 120, yPos + 0.6);
+    doc.setFont('Helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.text('Data', 100, yPos + 4, { align: 'center' });
+
+    // Right: Employee Signature / Name
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.text(recipientName, 160, yPos, { align: 'center' });
+    doc.line(125, yPos + 0.6, 195, yPos + 0.6);
+
+    yPos += 8;
+
+    // TABLE BUILD
+    // Exact 10 columns matching the image
+    const tableRows = branchItems.map((bi: any) => [
       bi.productName,
-      bi.code,
-      `${bi.quantity} ${bi.unit}`
+      bi.code || 'MARLUVAS',
+      '',
+      '',
+      bi.unit || 'UN',
+      `${bi.quantity} ${bi.unit || 'UN'}`,
+      formattedDate,
+      '',
+      '',
+      ''
     ]);
+
+    // Pad with empty rows up to at least 10 rows for clean physical logging
+    while (tableRows.length < 10) {
+      tableRows.push(['', '', '', '', '', '', '', '', '', '']);
+    }
 
     autoTable(doc, {
       startY: yPos,
-      margin: { top: 43, bottom: 22, left: 12, right: 12 },
-      head: [['Item / Equipamento', 'Código', 'Quantidade']],
-      body: tableBody,
+      margin: { top: 10, bottom: 10, left: 10, right: 10 },
+      head: [[
+        'MATERIAL ENTREGUE',
+        'MARCA',
+        'MODELO',
+        'CA',
+        'UNIDADE DE MEDIDA',
+        'QUANTIDADE ENTREGUE',
+        'DATA DA ENTREGA',
+        'ASSINATURA DO EMPREGADO',
+        'DATA DA DEVOLUÇÃO',
+        'ASSINATURA DO EMPREGADO'
+      ]],
+      body: tableRows,
       headStyles: {
-        fillColor: [16, 185, 129], // emerald-500
-        textColor: [255, 255, 255],
+        fillColor: [255, 255, 255],
+        textColor: [0, 0, 0],
         fontStyle: 'bold',
-        fontSize: 8.5
+        fontSize: 5.5,
+        halign: 'center',
+        valign: 'middle',
+        lineWidth: 0.2,
+        lineColor: [0, 0, 0]
       },
       bodyStyles: {
-        fontSize: 8.5,
-        textColor: [30, 41, 59]
+        fontSize: 6,
+        textColor: [0, 0, 0],
+        halign: 'center',
+        valign: 'middle',
+        minCellHeight: 6,
+        lineWidth: 0.2,
+        lineColor: [0, 0, 0]
       },
       columnStyles: {
-        0: { cellWidth: 110 },
-        1: { cellWidth: 40, font: 'courier' },
-        2: { cellWidth: 36, halign: 'center', fontStyle: 'bold' }
+        0: { cellWidth: 42, halign: 'left' },
+        1: { cellWidth: 22, halign: 'left' },
+        2: { cellWidth: 16, halign: 'left' },
+        3: { cellWidth: 12, halign: 'center' },
+        4: { cellWidth: 18, halign: 'center' },
+        5: { cellWidth: 18, halign: 'center' },
+        6: { cellWidth: 16, halign: 'center' },
+        7: { cellWidth: 18, halign: 'center' },
+        8: { cellWidth: 14, halign: 'center' },
+        9: { cellWidth: 14, halign: 'center' }
       },
       theme: 'grid'
     });
-
-    yPos = (doc as any).lastAutoTable.finalY + 8;
-
-    // Declaration Box
-    doc.setFillColor(236, 253, 245); // emerald-50
-    doc.setDrawColor(167, 243, 208); // emerald-200
-    
-    let declText = branchItems.map((bi: any) => 
-      `"Eu, ${recipientName}, confirmo o recebimento da quantidade ${bi.quantity} ${bi.unit} do item ${bi.productName} na presente data."`
-    ).join('\n');
-    declText += `\n\nDeclaro ter recebido da Lojas Ramos os Equipamentos de Proteção Individual (EPI) listados acima em perfeitas condições de uso e conservação, comprometendo-me a utilizá-los de forma adequada durante minhas atividades profissionais.`;
-
-    const splitDecl = doc.splitTextToSize(declText, 180);
-    const boxHeight = Math.max(28, splitDecl.length * 4 + 8);
-
-    doc.roundedRect(12, yPos, 186, boxHeight, 2, 2, 'FD');
-
-    doc.setFont('Helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(6, 78, 59);
-    doc.text(splitDecl, 15, yPos + 6);
-
-    yPos += boxHeight + 20;
-
-    // Signature Block
-    if (yPos > 235) {
-      doc.addPage();
-      yPos = 43;
-    }
-
-    doc.setDrawColor(15, 23, 42);
-    doc.setLineWidth(0.5);
-
-    // Left signature line
-    doc.line(16, yPos, 90, yPos);
-    doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(8.5);
-    doc.setTextColor(15, 23, 42);
-    doc.text(recipientName, 16, yPos + 5);
-    doc.setFont('Helvetica', 'normal');
-    doc.setFontSize(7.5);
-    doc.setTextColor(100, 116, 139);
-    doc.text('Assinatura do Colaborador / Recebedor', 16, yPos + 9);
-    doc.text(`Lojas Ramos - ${branch?.name || ''}`, 16, yPos + 13);
-
-    // Right date line
-    doc.line(120, yPos, 194, yPos);
-    doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(8.5);
-    doc.setTextColor(15, 23, 42);
-    doc.text('Data: _____ / _____ / _________', 120, yPos + 5);
-    doc.setFont('Helvetica', 'normal');
-    doc.setFontSize(7.5);
-    doc.setTextColor(100, 116, 139);
-    doc.text('Data do Recebimento na Sucursal', 120, yPos + 9);
   });
 
-  // Apply brand headers, logo, 1cm bands, and page numbers to all pages
-  applyBrandHeaderFooterToAllPages(
-    doc,
-    'TERMO DE RECEBIMENTO E RESPONSABILIDADE DE EPI',
-    'Controle de Entrega de Equipamentos de Proteção Individual',
-    `DIST-${distId}`,
-    companyLogo,
-    'EPI / SEGURANÇA',
-    'Termo de Responsabilidade de EPI • Lojas Ramos'
-  );
-
   const fileName = selectedBranchId && selectedBranchId !== 'all'
-    ? `termo_epi_ramos_${selectedBranchId}_dist_${distId}.pdf`
-    : `termos_epi_ramos_dist_${distId}.pdf`;
+    ? `ficha_controle_epi_ramos_${selectedBranchId}_dist_${distId}.pdf`
+    : `fichas_controle_epi_ramos_dist_${distId}.pdf`;
 
   doc.save(fileName);
 }

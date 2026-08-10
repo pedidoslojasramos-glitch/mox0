@@ -103,208 +103,213 @@ export function useRamox() {
   const [globalSearch, setGlobalSearch] = useState('');
   const isInitialLoadCompleteRef = useRef(false);
 
+  const refreshData = async () => {
+    // 1. Re-sync from localStorage / mockDb immediately
+    const freshLocal = mockDb.get();
+    setState(prev => ({
+      ...prev,
+      ...freshLocal,
+      currentUser: prev.currentUser || freshLocal.currentUser
+    }));
+
+    // 2. Fetch from Supabase if client is connected
+    const client = getSupabase();
+    if (!client) return;
+
+    try {
+      const [
+        { data: dbBranches, error: errBranches },
+        { data: dbSuppliers, error: errSuppliers },
+        { data: dbProducts, error: errProducts },
+        { data: dbUsers, error: errUsers },
+        { data: dbBranchOrders, error: errOrders },
+        { data: dbPurchaseOrders, error: errPO }
+      ] = await Promise.all([
+        client.from('branches').select('*'),
+        client.from('suppliers').select('*'),
+        client.from('products').select('*'),
+        client.from('users').select('*'),
+        client.from('branch_orders').select('*'),
+        client.from('purchase_orders').select('*')
+      ]);
+
+      if (errUsers) console.warn('Supabase fetch users error:', errUsers);
+
+      setState(prev => {
+        let updated = { ...prev };
+
+        if (!errBranches && Array.isArray(dbBranches)) {
+          const mappedBranches = dbBranches
+            .filter((b: any) => b && b.id && !isDeleted(b.id))
+            .map((b: any) => ({
+              id: b.id,
+              name: b.name,
+              location: b.location || '',
+              manager: b.manager || ''
+            }));
+
+          const localOnlyBranches = (prev.branches || []).filter(lb => 
+            lb && lb.id && !isDeleted(lb.id) &&
+            !mappedBranches.some(sb => sb.id === lb.id || toValidUUID(sb.id) === toValidUUID(lb.id) || sb.name.toLowerCase().trim() === lb.name.toLowerCase().trim())
+          );
+
+          updated.branches = [...mappedBranches, ...localOnlyBranches];
+        }
+
+        if (!errSuppliers && Array.isArray(dbSuppliers)) {
+          const mappedSuppliers = dbSuppliers
+            .filter((s: any) => s && s.id && !isDeleted(s.id))
+            .map((s: any) => ({
+              id: s.id,
+              name: s.name,
+              code: s.code,
+              cnpj: s.cnpj || '',
+              contact: s.contact || ''
+            }));
+
+          const localOnlySuppliers = (prev.suppliers || []).filter(ls => 
+            ls && ls.id && !isDeleted(ls.id) &&
+            !mappedSuppliers.some(ss => ss.id === ls.id || toValidUUID(ss.id) === toValidUUID(ls.id) || ss.code === ls.code)
+          );
+
+          updated.suppliers = [...mappedSuppliers, ...localOnlySuppliers];
+        }
+
+        if (!errProducts && Array.isArray(dbProducts)) {
+          const mappedProducts = dbProducts
+            .filter((p: any) => p && p.id && !isDeleted(p.id))
+            .map((p: any) => ({
+              id: p.id,
+              name: p.name,
+              code: p.code,
+              category: p.category,
+              unit: p.unit,
+              price: Number(p.price) || 0,
+              currentStock: p.current_stock ?? p.currentStock ?? 0,
+              minStock: p.min_stock ?? p.minStock ?? 0,
+              image: p.image || ''
+            }));
+
+          const localOnlyProducts = (prev.products || []).filter(lp => 
+            lp && lp.id && !isDeleted(lp.id) &&
+            !mappedProducts.some(sp => sp.id === lp.id || toValidUUID(sp.id) === toValidUUID(lp.id) || sp.code === lp.code)
+          );
+
+          updated.products = [...mappedProducts, ...localOnlyProducts];
+        }
+
+        if (!errUsers && Array.isArray(dbUsers)) {
+          const mappedUsers = dbUsers
+            .filter((u: any) => u && u.id && !isDeleted(u.id))
+            .map((u: any) => {
+              const localUser = prev.users?.find(lu => 
+                lu.id === u.id || 
+                toValidUUID(lu.id) === toValidUUID(u.id) || 
+                (lu.email && u.email && lu.email.toLowerCase().trim() === u.email.toLowerCase().trim())
+              );
+
+              const userPassword = (u.password && String(u.password).trim() !== '')
+                ? String(u.password).trim()
+                : (localUser?.password ? String(localUser.password).trim() : '123');
+
+              const rawBranchId = u.branch_id || u.branchId || localUser?.branchId;
+              const matchingBranch = updated.branches.find(b => 
+                b.id === rawBranchId || 
+                toValidUUID(b.id) === toValidUUID(rawBranchId) || 
+                b.name === rawBranchId
+              );
+              const userBranchId = matchingBranch ? matchingBranch.id : (rawBranchId || undefined);
+
+              return {
+                id: localUser?.id || u.id,
+                name: localUser?.name || u.name || 'Usuário',
+                email: u.email || localUser?.email || '',
+                role: u.role || localUser?.role || 'branch',
+                password: userPassword,
+                branchId: userBranchId
+              };
+            });
+
+          const localOnlyUsers = (prev.users || []).filter(lu => 
+            lu && lu.id && !isDeleted(lu.id) &&
+            !mappedUsers.some(su => 
+              su.id === lu.id || 
+              toValidUUID(su.id) === toValidUUID(lu.id) || 
+              (su.email && lu.email && su.email.toLowerCase().trim() === lu.email.toLowerCase().trim())
+            )
+          );
+
+          const mergedUsers = [...mappedUsers, ...localOnlyUsers];
+
+          if (!mergedUsers.some(u => u && u.email && u.email.toLowerCase().trim() === 'admin@ramox.com')) {
+            const existingMaster = prev.users?.find(u => u && u.email && u.email.toLowerCase().trim() === 'admin@ramox.com');
+            mergedUsers.unshift(existingMaster || {
+              id: '1',
+              name: 'Admin Master',
+              email: 'admin@ramox.com',
+              password: '123',
+              role: 'admin'
+            });
+          }
+
+          updated.users = mergedUsers;
+        }
+
+        if (!errOrders && Array.isArray(dbBranchOrders)) {
+          const mappedOrders = dbBranchOrders
+            .filter((o: any) => o && !isDeleted(o.id))
+            .map((o: any) => ({
+              id: o.id,
+              branchId: o.branch_id || o.branchId,
+              status: o.status,
+              totalValue: Number(o.total_value ?? o.totalValue) || 0,
+              items: o.items || [],
+              createdAt: o.created_at || o.createdAt,
+              approvedBy: o.approved_by || o.approvedBy || undefined,
+              approvedAt: o.approved_at || o.approvedAt || undefined
+            }));
+
+          const localOnlyOrders = (prev.branchOrders || []).filter(lo => 
+            lo && !isDeleted(lo.id) &&
+            !mappedOrders.some(so => so.id === lo.id || toValidUUID(so.id) === toValidUUID(lo.id))
+          );
+
+          updated.branchOrders = [...mappedOrders, ...localOnlyOrders];
+        }
+
+        if (!errPO && Array.isArray(dbPurchaseOrders)) {
+          const mappedPOs = dbPurchaseOrders
+            .filter((po: any) => po && !isDeleted(po.id))
+            .map((po: any) => ({
+              id: po.id,
+              supplierId: po.supplier_id || po.supplierId,
+              status: po.status,
+              totalValue: Number(po.total_value ?? po.totalValue) || 0,
+              items: po.items || [],
+              createdAt: po.created_at || po.createdAt
+            }));
+
+          const localOnlyPOs = (prev.purchaseOrders || []).filter(lpo => 
+            lpo && !isDeleted(lpo.id) &&
+            !mappedPOs.some(spo => spo.id === lpo.id || toValidUUID(spo.id) === toValidUUID(lpo.id))
+          );
+
+          updated.purchaseOrders = [...mappedPOs, ...localOnlyPOs];
+        }
+
+        mockDb.save(updated);
+        return updated;
+      });
+    } catch (e) {
+      console.warn('Erro ao carregar dados do Supabase:', e);
+    } finally {
+      isInitialLoadCompleteRef.current = true;
+    }
+  };
+
   // Initial fetch from Supabase if connected
   useEffect(() => {
-    async function loadFromSupabase() {
-      const client = getSupabase();
-      if (!client) {
-        isInitialLoadCompleteRef.current = true;
-        return;
-      }
-
-      try {
-        const [
-          { data: dbBranches, error: errBranches },
-          { data: dbSuppliers, error: errSuppliers },
-          { data: dbProducts, error: errProducts },
-          { data: dbUsers, error: errUsers },
-          { data: dbBranchOrders, error: errOrders },
-          { data: dbPurchaseOrders, error: errPO }
-        ] = await Promise.all([
-          client.from('branches').select('*'),
-          client.from('suppliers').select('*'),
-          client.from('products').select('*'),
-          client.from('users').select('*'),
-          client.from('branch_orders').select('*'),
-          client.from('purchase_orders').select('*')
-        ]);
-
-        if (errUsers) console.warn('Supabase fetch users error:', errUsers);
-
-        setState(prev => {
-          let updated = { ...prev };
-
-          if (!errBranches && Array.isArray(dbBranches)) {
-            const mappedBranches = dbBranches
-              .filter((b: any) => b && b.id && !isDeleted(b.id))
-              .map((b: any) => ({
-                id: b.id,
-                name: b.name,
-                location: b.location || '',
-                manager: b.manager || ''
-              }));
-
-            const localOnlyBranches = (prev.branches || []).filter(lb => 
-              lb && lb.id && !isDeleted(lb.id) &&
-              !mappedBranches.some(sb => sb.id === lb.id || toValidUUID(sb.id) === toValidUUID(lb.id) || sb.name.toLowerCase().trim() === lb.name.toLowerCase().trim())
-            );
-
-            updated.branches = [...mappedBranches, ...localOnlyBranches];
-          }
-
-          if (!errSuppliers && Array.isArray(dbSuppliers)) {
-            const mappedSuppliers = dbSuppliers
-              .filter((s: any) => s && s.id && !isDeleted(s.id))
-              .map((s: any) => ({
-                id: s.id,
-                name: s.name,
-                code: s.code,
-                cnpj: s.cnpj || '',
-                contact: s.contact || ''
-              }));
-
-            const localOnlySuppliers = (prev.suppliers || []).filter(ls => 
-              ls && ls.id && !isDeleted(ls.id) &&
-              !mappedSuppliers.some(ss => ss.id === ls.id || toValidUUID(ss.id) === toValidUUID(ls.id) || ss.code === ls.code)
-            );
-
-            updated.suppliers = [...mappedSuppliers, ...localOnlySuppliers];
-          }
-
-          if (!errProducts && Array.isArray(dbProducts)) {
-            const mappedProducts = dbProducts
-              .filter((p: any) => p && p.id && !isDeleted(p.id))
-              .map((p: any) => ({
-                id: p.id,
-                name: p.name,
-                code: p.code,
-                category: p.category,
-                unit: p.unit,
-                price: Number(p.price) || 0,
-                currentStock: p.current_stock ?? p.currentStock ?? 0,
-                minStock: p.min_stock ?? p.minStock ?? 0,
-                image: p.image || ''
-              }));
-
-            const localOnlyProducts = (prev.products || []).filter(lp => 
-              lp && lp.id && !isDeleted(lp.id) &&
-              !mappedProducts.some(sp => sp.id === lp.id || toValidUUID(sp.id) === toValidUUID(lp.id) || sp.code === lp.code)
-            );
-
-            updated.products = [...mappedProducts, ...localOnlyProducts];
-          }
-
-          if (!errUsers && Array.isArray(dbUsers)) {
-            const mappedUsers = dbUsers
-              .filter((u: any) => u && u.id && !isDeleted(u.id))
-              .map((u: any) => {
-                const localUser = prev.users?.find(lu => 
-                  lu.id === u.id || 
-                  toValidUUID(lu.id) === toValidUUID(u.id) || 
-                  (lu.email && u.email && lu.email.toLowerCase().trim() === u.email.toLowerCase().trim())
-                );
-
-                const userPassword = (u.password && String(u.password).trim() !== '')
-                  ? String(u.password).trim()
-                  : (localUser?.password ? String(localUser.password).trim() : '123');
-
-                const rawBranchId = u.branch_id || u.branchId || localUser?.branchId;
-                const matchingBranch = updated.branches.find(b => 
-                  b.id === rawBranchId || 
-                  toValidUUID(b.id) === toValidUUID(rawBranchId) || 
-                  b.name === rawBranchId
-                );
-                const userBranchId = matchingBranch ? matchingBranch.id : (rawBranchId || undefined);
-
-                return {
-                  id: localUser?.id || u.id,
-                  name: localUser?.name || u.name || 'Usuário',
-                  email: u.email || localUser?.email || '',
-                  role: u.role || localUser?.role || 'branch',
-                  password: userPassword,
-                  branchId: userBranchId
-                };
-              });
-
-            const localOnlyUsers = (prev.users || []).filter(lu => 
-              lu && lu.id && !isDeleted(lu.id) &&
-              !mappedUsers.some(su => 
-                su.id === lu.id || 
-                toValidUUID(su.id) === toValidUUID(lu.id) || 
-                (su.email && lu.email && su.email.toLowerCase().trim() === lu.email.toLowerCase().trim())
-              )
-            );
-
-            const mergedUsers = [...mappedUsers, ...localOnlyUsers];
-
-            // Ensure Admin Master (admin@ramox.com) is preserved
-            if (!mergedUsers.some(u => u && u.email && u.email.toLowerCase().trim() === 'admin@ramox.com')) {
-              const existingMaster = prev.users?.find(u => u && u.email && u.email.toLowerCase().trim() === 'admin@ramox.com');
-              mergedUsers.unshift(existingMaster || {
-                id: '1',
-                name: 'Admin Master',
-                email: 'admin@ramox.com',
-                password: '123',
-                role: 'admin'
-              });
-            }
-
-            updated.users = mergedUsers;
-          }
-
-          if (!errOrders && Array.isArray(dbBranchOrders)) {
-            const mappedOrders = dbBranchOrders
-              .filter((o: any) => o && !isDeleted(o.id))
-              .map((o: any) => ({
-                id: o.id,
-                branchId: o.branch_id || o.branchId,
-                status: o.status,
-                totalValue: Number(o.total_value ?? o.totalValue) || 0,
-                items: o.items || [],
-                createdAt: o.created_at || o.createdAt,
-                approvedBy: o.approved_by || o.approvedBy || undefined,
-                approvedAt: o.approved_at || o.approvedAt || undefined
-              }));
-
-            const localOnlyOrders = (prev.branchOrders || []).filter(lo => 
-              lo && !isDeleted(lo.id) &&
-              !mappedOrders.some(so => so.id === lo.id || toValidUUID(so.id) === toValidUUID(lo.id))
-            );
-
-            updated.branchOrders = [...mappedOrders, ...localOnlyOrders];
-          }
-
-          if (!errPO && Array.isArray(dbPurchaseOrders)) {
-            const mappedPOs = dbPurchaseOrders
-              .filter((po: any) => po && !isDeleted(po.id))
-              .map((po: any) => ({
-                id: po.id,
-                supplierId: po.supplier_id || po.supplierId,
-                status: po.status,
-                totalValue: Number(po.total_value ?? po.totalValue) || 0,
-                items: po.items || [],
-                createdAt: po.created_at || po.createdAt
-              }));
-
-            const localOnlyPOs = (prev.purchaseOrders || []).filter(lpo => 
-              lpo && !isDeleted(lpo.id) &&
-              !mappedPOs.some(spo => spo.id === lpo.id || toValidUUID(spo.id) === toValidUUID(lpo.id))
-            );
-
-            updated.purchaseOrders = [...mappedPOs, ...localOnlyPOs];
-          }
-
-          mockDb.save(updated);
-          return updated;
-        });
-      } catch (e) {
-        console.warn('Erro ao carregar dados do Supabase:', e);
-      } finally {
-        isInitialLoadCompleteRef.current = true;
-      }
-    }
-
-    loadFromSupabase();
+    refreshData();
   }, []);
 
   // Save to local storage & sync to Supabase on state change
@@ -1752,6 +1757,7 @@ export function useRamox() {
     checkBranchOrderLimits,
     globalSearch,
     setGlobalSearch,
+    refreshData,
     resetDb: mockDb.reset
   };
 }

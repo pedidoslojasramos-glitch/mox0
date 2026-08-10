@@ -2734,80 +2734,135 @@ function DistributionTab() {
                   return (
                     <div 
                       key={branchId} 
-                      className={`border border-slate-300 rounded-xl p-6 bg-slate-50/50 space-y-6 print:border-none print:bg-white print:p-0 ${
+                      className={`border border-slate-300 rounded-xl p-6 bg-white text-slate-900 space-y-5 print:border-none print:p-0 ${
                         pageIdx < displayBranchIds.length - 1 ? 'break-after-page' : ''
                       }`}
                     >
-                      {/* CABEÇALHO DA EMPRESA */}
-                      <div className="border-b-2 border-slate-900 pb-4 text-center space-y-1">
-                        <h1 className="text-2xl font-black uppercase tracking-wider text-slate-900">LOJAS RAMOS</h1>
-                        <h2 className="text-sm font-bold uppercase tracking-widest text-slate-700">Comprovante de Entrega e Termo de Responsabilidade de EPI</h2>
-                        <p className="text-xs text-slate-500">Distribuição #{dist.id.toUpperCase()} • Data: {new Date(dist.createdAt).toLocaleDateString('pt-BR')}</p>
+                      {/* TITULO CENTRAL */}
+                      <div className="text-center border-b pb-3 border-slate-300">
+                        <h1 className="text-xl font-black uppercase tracking-wider text-slate-900">
+                          FICHA DE CONTROLE DE UNIFORME E EPI
+                        </h1>
                       </div>
 
-                      {/* CABEÇALHO DA SUCURSAL E BENEFICIÁRIO */}
-                      <div className="grid grid-cols-2 gap-4 border-b border-slate-200 pb-3 bg-white p-4 rounded-lg border border-slate-200">
-                        <div>
-                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Empresa / Sucursal</p>
-                          <p className="text-base font-bold text-slate-900">Lojas Ramos - {branch?.name}</p>
-                          {branch?.location && <p className="text-xs text-slate-500">{branch.location}</p>}
+                      {/* CABEÇALHO DO COLABORADOR E EMPRESA */}
+                      <div className="text-xs space-y-2 border-b pb-3 border-slate-300">
+                        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+                          <p>
+                            Nome: <strong className="underline uppercase font-bold text-slate-900">{recipientName}</strong>
+                          </p>
+                          <p>
+                            Data de Admissão: <strong className="underline">{new Date(dist.createdAt).toLocaleDateString('pt-BR')}</strong>
+                          </p>
+                          <p>
+                            Matrícula: <strong className="underline">{branch?.code ? branch.code.toUpperCase() : '00194'}</strong>
+                          </p>
                         </div>
-                        <div className="text-right">
-                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Beneficiário / Recebedor Único</p>
-                          <p className="text-base font-bold text-emerald-800">{recipientName}</p>
-                          <p className="text-xs text-slate-500">Termo de Responsabilidade Pessoal</p>
+
+                        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+                          <p>
+                            Empresa: <strong className="underline font-bold text-slate-900">RAMOS SERVIÇOS ADMINISTRATIVO {branch?.name?.toUpperCase()} SA</strong>
+                          </p>
+                          <p>
+                            Função: <strong className="underline font-bold">AUX.ADMINISTRATIVO</strong>
+                          </p>
+                          <p>
+                            N.º do Calçado: <span className="underline">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
+                          </p>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-x-8 gap-y-1">
+                          <p>Manequim: <span className="underline">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></p>
+                          <p>Camisa: <span className="underline">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></p>
+                          <p>Capa: <span className="underline">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></p>
                         </div>
                       </div>
 
-                      {/* TABELA DE ITENS ENTREGUES */}
+                      {/* TERMO DE RESPONSABILIDADE */}
                       <div className="space-y-2">
-                        <p className="text-xs font-bold uppercase tracking-wider text-slate-700">Equipamentos de Proteção Individual (EPI) Entregues:</p>
-                        <table className="w-full text-xs text-left border-collapse border border-slate-300">
+                        <h2 className="text-center font-black text-base uppercase tracking-wider text-slate-900">
+                          TERMO DE RESPONSABILIDADE
+                        </h2>
+                        <div className="text-[11px] leading-relaxed text-slate-800 space-y-1">
+                          <p>
+                            Declaro que assumo total responsabilidade pela guarda e conservação do Equipamento de Proteção Individual abaixo descrito, e que recebi orientação sobre o seu uso correto, tomando os seguintes conhecimentos:
+                          </p>
+                          <ul className="list-disc list-inside space-y-0.5 pl-2 text-[10.5px]">
+                            <li>Sou obrigado a usá-lo somente para a finalidade a que se destina;</li>
+                            <li>Sou obrigado a comunicar ao chefe imediato qualquer alteração que o torne impróprio para o uso ou seu extravio;</li>
+                            <li>Sou obrigado a devolvê-lo quando da rescisão do contrato de trabalho ou quando do período de troca.</li>
+                          </ul>
+                          <p className="text-[10px] text-slate-700 italic pt-1">
+                            CLT – Art. 462 § 1º Em caso de dano causado pelo empregado, o desconto será lícito, desde que a possibilidade tenha sido acordada, ou na ocorrência de dolo do empregado.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* LOCAL / DATA / ASSINATURA */}
+                      <div className="grid grid-cols-3 gap-4 text-center text-xs pt-2 pb-1">
+                        <div>
+                          <p className="font-bold border-b border-slate-900 pb-0.5">{branch?.name?.toUpperCase()}</p>
+                          <p className="text-[10px] text-slate-600 mt-0.5">Local</p>
+                        </div>
+                        <div>
+                          <p className="font-bold border-b border-slate-900 pb-0.5">&nbsp;</p>
+                          <p className="text-[10px] text-slate-600 mt-0.5">Data</p>
+                        </div>
+                        <div>
+                          <p className="font-bold border-b border-slate-900 pb-0.5">{recipientName}</p>
+                          <p className="text-[10px] text-slate-600 mt-0.5">Assinatura do Empregado</p>
+                        </div>
+                      </div>
+
+                      {/* TABELA DE 10 COLUNAS EXATAS */}
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-[10px] text-center border-collapse border border-slate-900">
                           <thead>
-                            <tr className="bg-slate-200 text-slate-800 font-bold uppercase">
-                              <th className="p-2.5 border border-slate-300">Item / Equipamento</th>
-                              <th className="p-2.5 border border-slate-300">Código</th>
-                              <th className="p-2.5 border border-slate-300 text-center">Quantidade</th>
+                            <tr className="bg-slate-100 font-bold uppercase text-[9px] border-b border-slate-900">
+                              <th className="p-1 border border-slate-900 text-left">MATERIAL ENTREGUE</th>
+                              <th className="p-1 border border-slate-900 text-left">MARCA</th>
+                              <th className="p-1 border border-slate-900">MODELO</th>
+                              <th className="p-1 border border-slate-900">CA</th>
+                              <th className="p-1 border border-slate-900">UNIDADE DE MEDIDA</th>
+                              <th className="p-1 border border-slate-900">QUANTIDADE ENTREGUE</th>
+                              <th className="p-1 border border-slate-900">DATA DA ENTREGA</th>
+                              <th className="p-1 border border-slate-900">ASSINATURA DO EMPREGADO</th>
+                              <th className="p-1 border border-slate-900">DATA DA DEVOLUÇÃO</th>
+                              <th className="p-1 border border-slate-900">ASSINATURA DO EMPREGADO</th>
                             </tr>
                           </thead>
                           <tbody>
                             {branchItems.map((bi: any, bIdx: number) => (
-                              <tr key={bIdx} className="border-b border-slate-200 bg-white">
-                                <td className="p-2.5 border border-slate-300 font-bold text-slate-900">{bi.productName}</td>
-                                <td className="p-2.5 border border-slate-300 font-mono text-slate-600">{bi.code}</td>
-                                <td className="p-2.5 border border-slate-300 text-center font-bold text-slate-900">{bi.quantity} {bi.unit}</td>
+                              <tr key={bIdx} className="border-b border-slate-900">
+                                <td className="p-1.5 border border-slate-900 text-left font-bold">{bi.productName.toUpperCase()}</td>
+                                <td className="p-1.5 border border-slate-900 text-left">{bi.code?.toUpperCase() || 'MARLUVAS'}</td>
+                                <td className="p-1.5 border border-slate-900"></td>
+                                <td className="p-1.5 border border-slate-900"></td>
+                                <td className="p-1.5 border border-slate-900">{bi.unit.toUpperCase()}</td>
+                                <td className="p-1.5 border border-slate-900 font-bold">{bi.quantity} {bi.unit.toUpperCase()}</td>
+                                <td className="p-1.5 border border-slate-900">/{new Date(dist.createdAt).toLocaleDateString('pt-BR').substring(3)}</td>
+                                <td className="p-1.5 border border-slate-900"></td>
+                                <td className="p-1.5 border border-slate-900"></td>
+                                <td className="p-1.5 border border-slate-900"></td>
+                              </tr>
+                            ))}
+                            {/* Linhas vazias para preenchimento manual */}
+                            {Array.from({ length: Math.max(0, 8 - branchItems.length) }).map((_, emptyIdx) => (
+                              <tr key={`empty-${emptyIdx}`} className="border-b border-slate-900 h-6">
+                                <td className="p-1 border border-slate-900"></td>
+                                <td className="p-1 border border-slate-900"></td>
+                                <td className="p-1 border border-slate-900"></td>
+                                <td className="p-1 border border-slate-900"></td>
+                                <td className="p-1 border border-slate-900"></td>
+                                <td className="p-1 border border-slate-900"></td>
+                                <td className="p-1 border border-slate-900"></td>
+                                <td className="p-1 border border-slate-900"></td>
+                                <td className="p-1 border border-slate-900"></td>
+                                <td className="p-1 border border-slate-900"></td>
                               </tr>
                             ))}
                           </tbody>
                         </table>
-                      </div>
-
-                      {/* DECLARAÇÃO DE RECEBIMENTO ÚNICA */}
-                      <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-lg text-slate-800 text-xs leading-relaxed space-y-2">
-                        {branchItems.map((bi: any, bIdx: number) => (
-                          <p key={bIdx} className="font-medium text-slate-900 text-sm">
-                            "Eu, <strong className="text-emerald-950 font-bold underline">{recipientName}</strong>, confirmo o recebimento da quantidade <strong className="font-bold">{bi.quantity} {bi.unit}</strong> do item <strong className="font-bold">{bi.productName}</strong> na presente data."
-                          </p>
-                        ))}
-                        <p className="text-[11px] text-slate-600 italic pt-2 border-t border-emerald-200/80">
-                          Declaro ter recebido da <strong>Lojas Ramos</strong> os Equipamentos de Proteção Individual (EPI) listados acima em perfeitas condições de uso e conservação, comprometendo-me a utilizá-los de forma adequada durante minhas atividades profissionais.
-                        </p>
-                      </div>
-
-                      {/* CAMPO DE ASSINATURA E DATA */}
-                      <div className="pt-8 grid grid-cols-2 gap-8 items-end text-center text-xs">
-                        <div className="space-y-1">
-                          <div className="border-b border-slate-900 w-full mb-1" />
-                          <p className="font-bold text-slate-900">{recipientName}</p>
-                          <p className="text-[10px] text-slate-500">Assinatura do Colaborador / Recebedor</p>
-                          <p className="text-[10px] text-slate-400">Lojas Ramos - {branch?.name}</p>
-                        </div>
-
-                        <div className="space-y-1">
-                          <div className="border-b border-slate-900 w-full mb-1" />
-                          <p className="font-bold text-slate-900">Data: _____ / _____ / _________</p>
-                          <p className="text-[10px] text-slate-500">Data do Recebimento na Sucursal</p>
-                        </div>
                       </div>
                     </div>
                   );

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { mockDb, isRecordDeleted } from './mockDb';
-import { Product, Supplier, PurchaseOrder, Branch, BranchOrder, User, UserRole, Distribution, DistributionType, BranchLimits } from '../types';
+import { Product, Supplier, PurchaseOrder, Branch, BranchOrder, User, UserRole, Distribution, DistributionType, BranchLimits, DeliveryRoute } from '../types';
 import { getSupabase } from '../lib/supabase';
 import { toast } from 'sonner';
 
@@ -1723,6 +1723,59 @@ export function useRamox() {
     });
   };
 
+  const addBranchToRoute = (dayKey: string, branchId: string) => {
+    setState(prev => {
+      const currentRoutes = prev.deliveryRoutes || [];
+      const updatedRoutes = currentRoutes.map(r => {
+        if (r.dayKey === dayKey) {
+          if (r.branchIds.includes(branchId)) return r;
+          return { ...r, branchIds: [...r.branchIds, branchId] };
+        }
+        return r;
+      });
+      return { ...prev, deliveryRoutes: updatedRoutes };
+    });
+  };
+
+  const removeBranchFromRoute = (dayKey: string, branchId: string) => {
+    setState(prev => {
+      const currentRoutes = prev.deliveryRoutes || [];
+      const updatedRoutes = currentRoutes.map(r => {
+        if (r.dayKey === dayKey) {
+          return { ...r, branchIds: r.branchIds.filter(id => id !== branchId) };
+        }
+        return r;
+      });
+      return { ...prev, deliveryRoutes: updatedRoutes };
+    });
+  };
+
+  const updateRouteDetails = (dayKey: string, details: { driverName?: string; vehiclePlate?: string; notes?: string }) => {
+    setState(prev => {
+      const currentRoutes = prev.deliveryRoutes || [];
+      const updatedRoutes = currentRoutes.map(r => {
+        if (r.dayKey === dayKey) {
+          return { ...r, ...details };
+        }
+        return r;
+      });
+      return { ...prev, deliveryRoutes: updatedRoutes };
+    });
+  };
+
+  const clearRouteDay = (dayKey: string) => {
+    setState(prev => {
+      const currentRoutes = prev.deliveryRoutes || [];
+      const updatedRoutes = currentRoutes.map(r => {
+        if (r.dayKey === dayKey) {
+          return { ...r, branchIds: [] };
+        }
+        return r;
+      });
+      return { ...prev, deliveryRoutes: updatedRoutes };
+    });
+  };
+
   return {
     ...state,
     login,
@@ -1755,6 +1808,10 @@ export function useRamox() {
     createDistribution,
     saveBranchLimits,
     checkBranchOrderLimits,
+    addBranchToRoute,
+    removeBranchFromRoute,
+    updateRouteDetails,
+    clearRouteDay,
     globalSearch,
     setGlobalSearch,
     refreshData,

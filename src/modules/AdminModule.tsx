@@ -72,6 +72,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import LimitsModule from './LimitsModule';
+import { RoutesModule } from './RoutesModule';
 
 export default function AdminModule({ initialTab }: { initialTab?: string }) {
   const [activeTab, setActiveTab] = useState(initialTab || 'products');
@@ -85,6 +86,7 @@ export default function AdminModule({ initialTab }: { initialTab?: string }) {
 
   const getTitle = () => {
     switch (activeTab) {
+      case 'routes': return 'Painel de Cadastro de Rotas';
       case 'products': return 'Gestão de Produtos';
       case 'inventory': return 'Estoque Central & Insights';
       case 'suppliers': return 'Gestão de Fornecedores';
@@ -99,6 +101,7 @@ export default function AdminModule({ initialTab }: { initialTab?: string }) {
 
   const getDescription = () => {
     switch (activeTab) {
+      case 'routes': return 'Roteirização semanal de entregas e cadastro de filiais por dia (Segunda a Sábado).';
       case 'products': return 'Cadastre e gerencie o catálogo de produtos do sistema.';
       case 'inventory': return 'Acompanhe a movimentação e saúde do estoque total.';
       case 'suppliers': return 'Controle seus parceiros e fornecedores de mercadorias.';
@@ -166,6 +169,12 @@ export default function AdminModule({ initialTab }: { initialTab?: string }) {
               Faturamento
             </TabsTrigger>
             <TabsTrigger 
+              value="routes" 
+              className="flex-none rounded-md px-8 py-3 bg-cyan-500/10 text-cyan-400 data-[state=active]:bg-cyan-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_20px_rgba(6,182,212,0.4)] font-bold transition-all hover:bg-cyan-500/20 hover:text-cyan-300 border border-cyan-500/20 data-[state=active]:border-cyan-500"
+            >
+              Cadastro de Rotas
+            </TabsTrigger>
+            <TabsTrigger 
               value="limits" 
               className="flex-none rounded-md px-8 py-3 bg-cyan-500/10 text-cyan-400 data-[state=active]:bg-cyan-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_20px_rgba(6,182,212,0.4)] font-bold transition-all hover:bg-cyan-500/20 hover:text-cyan-300 border border-cyan-500/20 data-[state=active]:border-cyan-500"
             >
@@ -173,6 +182,10 @@ export default function AdminModule({ initialTab }: { initialTab?: string }) {
             </TabsTrigger>
           </TabsList>
         )}
+
+        <TabsContent value="routes">
+          <RoutesModule />
+        </TabsContent>
 
         <TabsContent value="products">
           <ProductsTab />

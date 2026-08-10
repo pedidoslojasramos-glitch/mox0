@@ -3,6 +3,7 @@ import { useRamoxContext } from '../services/RamoxContextComponent';
 import ExportExcelModal from '../components/ExportExcelModal';
 import Pagination from '../components/Pagination';
 import { generateRomaneioPDF, generateBoxLabelPDF, generateManualPickingPDF } from '../utils/pdfGenerator';
+import { RoutesModule } from './RoutesModule';
 import { 
   Dialog, 
   DialogContent, 
@@ -167,6 +168,7 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
 
   const getTitle = () => {
     switch (activeTab) {
+      case 'routes': return 'Painel de Cadastro de Rotas';
       case 'picking_cities': return 'Fila de Separação (Picking)';
       case 'loading': return 'Carregamento / Expedição';
       case 'ready': return 'Pedidos Enviados / Histórico';
@@ -178,6 +180,7 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
 
   const getDescription = () => {
     switch (activeTab) {
+      case 'routes': return 'Roteirização semanal de entregas e cadastro de filiais por dia (Segunda a Sábado).';
       case 'picking_cities': return 'Selecione uma separação pendente e confira os itens para envio.';
       case 'loading': return 'Controle de carregamento e expedição por cidade / praça de entrega.';
       case 'ready': return 'Histórico de pedidos já despachados para as filiais.';
@@ -336,14 +339,21 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         {!initialTab && (
-          <TabsList className="bg-slate-900/50 border border-slate-800 p-1.5 rounded-lg mb-8 backdrop-blur-md h-auto flex flex-wrap">
-            <TabsTrigger value="picking_cities" className="rounded-md px-6 py-2.5 data-[state=active]:bg-amber-500 data-[state=active]:text-white transition-all font-bold">Separação ({Object.keys(ordersByCity).length} Cidades)</TabsTrigger>
-            <TabsTrigger value="loading" className="rounded-md px-6 py-2.5 data-[state=active]:bg-blue-500 data-[state=active]:text-white transition-all font-bold">Carregamento ({loadingOrders.length})</TabsTrigger>
-            <TabsTrigger value="ready" className="rounded-md px-6 py-2.5 data-[state=active]:bg-emerald-500 data-[state=active]:text-white transition-all font-bold">Enviados ({finishedOrders.length})</TabsTrigger>
-            <TabsTrigger value="incoming" className="rounded-md px-6 py-2.5 data-[state=active]:bg-slate-700 data-[state=active]:text-white transition-all font-bold">Recebimento ({incomingPurchases.length})</TabsTrigger>
-            <TabsTrigger value="counts" className="rounded-md px-6 py-2.5 data-[state=active]:bg-slate-800 data-[state=active]:text-white transition-all font-bold group border border-slate-800">Contagens ({pendingCounts.length})</TabsTrigger>
+          <TabsList className="bg-slate-900/50 border border-slate-800 p-1.5 rounded-lg mb-8 backdrop-blur-md h-auto flex flex-wrap gap-1">
+            <TabsTrigger value="routes" className="rounded-md px-5 py-2.5 data-[state=active]:bg-cyan-500 data-[state=active]:text-white transition-all font-bold flex items-center gap-2">
+              <span>Cadastro de Rotas</span>
+            </TabsTrigger>
+            <TabsTrigger value="picking_cities" className="rounded-md px-5 py-2.5 data-[state=active]:bg-amber-500 data-[state=active]:text-white transition-all font-bold">Separação ({Object.keys(ordersByCity).length} Cidades)</TabsTrigger>
+            <TabsTrigger value="loading" className="rounded-md px-5 py-2.5 data-[state=active]:bg-blue-500 data-[state=active]:text-white transition-all font-bold">Carregamento ({loadingOrders.length})</TabsTrigger>
+            <TabsTrigger value="ready" className="rounded-md px-5 py-2.5 data-[state=active]:bg-emerald-500 data-[state=active]:text-white transition-all font-bold">Enviados ({finishedOrders.length})</TabsTrigger>
+            <TabsTrigger value="incoming" className="rounded-md px-5 py-2.5 data-[state=active]:bg-slate-700 data-[state=active]:text-white transition-all font-bold">Recebimento ({incomingPurchases.length})</TabsTrigger>
+            <TabsTrigger value="counts" className="rounded-md px-5 py-2.5 data-[state=active]:bg-slate-800 data-[state=active]:text-white transition-all font-bold group border border-slate-800">Contagens ({pendingCounts.length})</TabsTrigger>
           </TabsList>
         )}
+
+        <TabsContent value="routes">
+          <RoutesModule />
+        </TabsContent>
 
         <TabsContent value="picking_cities">
           <Card className="border-slate-800 bg-slate-900/50 shadow-2xl backdrop-blur-xl">

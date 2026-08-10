@@ -1,8 +1,17 @@
-import { Product, Supplier, PurchaseOrder, Branch, BranchOrder, User, UserRole, Distribution, BranchLimits } from '../types';
+import { Product, Supplier, PurchaseOrder, Branch, BranchOrder, User, UserRole, Distribution, BranchLimits, DeliveryRoute } from '../types';
 
 const STORAGE_KEY = 'ramox_data';
 const SESSION_KEY = 'ramox_session_v1';
 const INACTIVITY_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes in milliseconds
+
+export const DEFAULT_DELIVERY_ROUTES: DeliveryRoute[] = [
+  { dayKey: 'monday', dayName: 'Segunda-feira', branchIds: ['1'] },
+  { dayKey: 'tuesday', dayName: 'Terça-feira', branchIds: ['2'] },
+  { dayKey: 'wednesday', dayName: 'Quarta-feira', branchIds: [] },
+  { dayKey: 'thursday', dayName: 'Quinta-feira', branchIds: [] },
+  { dayKey: 'friday', dayName: 'Sexta-feira', branchIds: [] },
+  { dayKey: 'saturday', dayName: 'Sábado', branchIds: [] },
+];
 
 interface InventoryCount {
   id: string;
@@ -30,6 +39,7 @@ interface DbState {
   distributions: Distribution[];
   branchLimits: BranchLimits[];
   productClassifications: string[];
+  deliveryRoutes: DeliveryRoute[];
 }
 
 const initialState: DbState = {
@@ -69,6 +79,7 @@ const initialState: DbState = {
   distributions: [],
   branchLimits: [],
   productClassifications: ['Alimentos', 'Bebidas', 'Limpeza', 'Higiene', 'Descartáveis', 'EPIs'],
+  deliveryRoutes: DEFAULT_DELIVERY_ROUTES,
 };
 
 const DELETED_KEY = 'ramox_deleted_ids_v1';
@@ -210,6 +221,7 @@ export const mockDb = {
         branchOrders: loadedBranchOrders,
         inventoryCounts: Array.isArray(parsed.inventoryCounts) ? parsed.inventoryCounts : [],
         distributions: Array.isArray(parsed.distributions) ? parsed.distributions : [],
+        deliveryRoutes: Array.isArray(parsed.deliveryRoutes) && parsed.deliveryRoutes.length > 0 ? parsed.deliveryRoutes : DEFAULT_DELIVERY_ROUTES,
       };
     } catch (e) {
       console.error('Error loading mockDb, resetting to initialState:', e);

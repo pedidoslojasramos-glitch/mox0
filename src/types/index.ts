@@ -89,3 +89,13 @@ export interface Distribution {
   }[];
   createdAt: any;
 }
+
+export interface DeliveryRoute {
+  dayKey: string; // 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'
+  dayName: string; // 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'
+  branchIds: string[];
+  driverName?: string;
+  vehiclePlate?: string;
+  notes?: string;
+}
+

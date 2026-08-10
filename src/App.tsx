@@ -29,6 +29,7 @@ import {
   Sliders,
   XCircle,
   RotateCw,
+  MapPin,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -219,6 +220,7 @@ export default function App() {
         { id: 'admin_invoicing', label: 'Faturamento', icon: FileText, roles: ['admin', 'logistics'] },
         { id: 'admin_inventory', label: 'Estoque Central', icon: ClipboardList, roles: ['admin', 'logistics'] },
         { id: 'admin_distribution', label: 'Distribuição', icon: Share2, roles: ['admin', 'logistics'] },
+        { id: 'admin_routes', label: 'Cadastro de Rotas', icon: MapPin, roles: ['admin', 'logistics'] },
         { id: 'admin_limits', label: 'Limites e Cotas', icon: Sliders, roles: ['admin'] },
       ]
     },
@@ -240,6 +242,7 @@ export default function App() {
       icon: Truck, 
       roles: ['admin', 'logistics'],
       children: [
+        { id: 'logistics_routes', label: 'Cadastro de Rotas', icon: MapPin, roles: ['admin', 'logistics'] },
         { id: 'logistics_picking_cities', label: 'Separação (Cidade)', icon: Box, roles: ['admin', 'logistics'] },
         { id: 'logistics_loading', label: 'Carregamento', icon: Truck, roles: ['admin', 'logistics'] },
         { id: 'logistics_ready', label: 'Enviados', icon: CheckCircle2, roles: ['admin', 'logistics'] },

@@ -241,18 +241,28 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
     );
   };
 
-  const handleCancelSinglePicking = (order: any) => {
-    updateBranchOrderStatus(order.id, 'approved');
-    toast.info(`Separação do Pedido #${order.id.toUpperCase()} cancelada. O pedido retornou ao status Aprovado.`);
+  const handleCancelSinglePicking = (order: any, returnToPending: boolean = false) => {
+    if (returnToPending) {
+      updateBranchOrderStatus(order.id, 'pending');
+      toast.info(`Pedido #${order.id.toUpperCase()} devolvido para a fila de aprovação administrativa.`);
+    } else {
+      updateBranchOrderStatus(order.id, 'approved');
+      toast.info(`Separação do Pedido #${order.id.toUpperCase()} cancelada/resetada. O pedido retornou ao status Aprovado.`);
+    }
   };
 
-  const handleBatchCancelPicking = () => {
+  const handleBatchCancelPicking = (returnToPending: boolean = false) => {
     if (selectedPickingOrderIds.length === 0) return;
     const count = selectedPickingOrderIds.length;
+    const targetStatus = returnToPending ? 'pending' : 'approved';
     selectedPickingOrderIds.forEach(id => {
-      updateBranchOrderStatus(id, 'approved');
+      updateBranchOrderStatus(id, targetStatus);
     });
-    toast.info(`${count} separação(ões) cancelada(s). Os pedidos retornaram ao status Aprovado.`);
+    if (returnToPending) {
+      toast.info(`${count} pedido(s) devolvido(s) para a fila de aprovação.`);
+    } else {
+      toast.info(`${count} separação(ões) cancelada(s)/resetada(s). Os pedidos retornaram ao status Aprovado.`);
+    }
     setSelectedPickingOrderIds([]);
   };
 
@@ -301,21 +311,25 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
   }, {} as Record<string, typeof branchOrders>);
 
   const handleCityLoadingAction = (city: string, orders: any[]) => {
-    const containsInvoiced = orders.some(o => o.status === 'invoiced');
-    if (containsInvoiced) {
-      orders.forEach(o => {
-        if (o.status === 'invoiced') {
-          updateBranchOrderStatus(o.id, 'loading');
-        }
+    const toLoad = orders.filter(o => o.status === 'picked' || o.status === 'invoiced');
+    if (toLoad.length > 0) {
+      toLoad.forEach(o => {
+        updateBranchOrderStatus(o.id, 'loading');
       });
-      toast.info(`Processo de carregamento iniciado para a cidade ${city}.`);
+      toast.info(`Carregamento iniciado para ${toLoad.length} pedido(s) da cidade ${city}!`);
     } else {
-      orders.forEach(o => {
-        if (o.status === 'loading') {
+      const toShip = orders.filter(o => o.status === 'loading');
+      if (toShip.length > 0) {
+        toShip.forEach(o => {
           updateBranchOrderStatus(o.id, 'shipped');
-        }
-      });
-      toast.success(`Carga despachada com sucesso para a cidade ${city}!`);
+        });
+        toast.success(`Carga despachada com sucesso para a cidade ${city} (${toShip.length} pedidos em trânsito)!`);
+      } else {
+        orders.forEach(o => {
+          updateBranchOrderStatus(o.id, 'shipped');
+        });
+        toast.success(`Carga despachada com sucesso para a cidade ${city}!`);
+      }
     }
   };
 
@@ -418,13 +432,23 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                     </Button>
 
                     <Button
-                      onClick={handleBatchCancelPicking}
+                      onClick={() => handleBatchCancelPicking(false)}
+                      variant="outline"
+                      className="bg-slate-900 hover:bg-slate-800 text-amber-400 border-slate-700 font-bold h-8 px-3 text-xs"
+                      title="Resetar separação dos pedidos selecionados e retornar para Aguardando Início (Aprovado)"
+                    >
+                      <RotateCcw size={14} className="mr-1.5 text-amber-400" />
+                      Resetar Separação ({selectedPickingOrderIds.length})
+                    </Button>
+
+                    <Button
+                      onClick={() => handleBatchCancelPicking(true)}
                       variant="outline"
                       className="bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border-rose-800/60 font-bold h-8 px-3 text-xs"
-                      title="Cancelar separação dos pedidos selecionados e retornar para o status Pendente"
+                      title="Devolver pedidos selecionados para a fila de aprovação administrativa (Pendente)"
                     >
                       <XCircle size={14} className="mr-1.5 text-rose-400" />
-                      Cancelar Separação ({selectedPickingOrderIds.length})
+                      Devolver p/ Aprovação ({selectedPickingOrderIds.length})
                     </Button>
 
                     <Button
@@ -545,20 +569,32 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                                     setLabelCount(1);
                                   }}
                                   className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold h-9 px-3.5 rounded-md shadow-md shadow-emerald-500/10 border-none transition-all text-xs"
-                                  title="Confirmar que a separação foi concluída"
+                                  title="Confirmar que a separação física foi concluída"
                                 >
                                   <CheckCircle2 size={14} className="mr-1.5" /> Confirmar Separação
                                 </Button>
                               )}
 
-                              {/* Cancelar Separação */}
+                              {/* Resetar Separação / Voltar para Aprovado */}
+                              {order.status === 'picking' && (
+                                <Button 
+                                  onClick={() => handleCancelSinglePicking(order, false)}
+                                  variant="outline"
+                                  className="bg-slate-900 hover:bg-slate-800 text-amber-400 border-slate-700 font-bold h-9 px-3 rounded-md transition-all text-xs"
+                                  title="Resetar separação em andamento e retornar para Aguardando Início"
+                                >
+                                  <RotateCcw size={14} className="mr-1.5 text-amber-400" /> Resetar
+                                </Button>
+                              )}
+
+                              {/* Devolver para Aprovação Administrativa */}
                               <Button 
-                                onClick={() => handleCancelSinglePicking(order)}
+                                onClick={() => handleCancelSinglePicking(order, true)}
                                 variant="outline"
-                                className="bg-rose-950/40 hover:bg-rose-900/60 text-rose-400 border-rose-800/50 font-bold h-9 px-3.5 rounded-md transition-all text-xs"
-                                title="Cancelar separação deste pedido e retornar para o status Pendente"
+                                className="bg-rose-950/40 hover:bg-rose-900/60 text-rose-400 border-rose-800/50 font-bold h-9 px-3 rounded-md transition-all text-xs"
+                                title="Cancelar e devolver pedido para a fila de aprovação (Pendente)"
                               >
-                                <XCircle size={14} className="mr-1.5" /> Cancelar Separação
+                                <XCircle size={14} className="mr-1.5" /> Devolver p/ Aprovação
                               </Button>
                             </div>
                           </TableCell>
@@ -601,7 +637,9 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
             </CardHeader>
             <CardContent className="p-6 space-y-6">
               {(Object.entries(loadingOrdersByCity) as [string, any[]][]).map(([city, cityOrders]) => {
-                const containsInvoiced = cityOrders.some((o: any) => o.status === 'invoiced');
+                const ordersToLoad = cityOrders.filter((o: any) => o.status === 'picked' || o.status === 'invoiced');
+                const ordersInLoading = cityOrders.filter((o: any) => o.status === 'loading');
+                const hasOrdersToLoad = ordersToLoad.length > 0;
                 const totalItems = cityOrders.reduce((sum: number, o: any) => sum + o.items.reduce((s: number, i: any) => s + i.quantity, 0), 0);
                 const totalOrders = cityOrders.length;
                 
@@ -614,25 +652,26 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                           <h3 className="font-extrabold text-white text-xl tracking-wide">{city.toUpperCase()}</h3>
                         </div>
                         <p className="text-xs text-slate-500 mt-1 font-medium">
-                          {totalOrders} {totalOrders === 1 ? 'pedido' : 'pedidos'} faturamento pronto • {totalItems} volumes para embarque.
+                          {totalOrders} {totalOrders === 1 ? 'pedido' : 'pedidos'} • {totalItems} volumes para embarque.
+                          {ordersInLoading.length > 0 && <span className="text-cyan-400 ml-2 font-bold">({ordersInLoading.length} em carregamento)</span>}
                         </p>
                       </div>
                       <div>
                         <Button
                           onClick={() => handleCityLoadingAction(city, cityOrders)}
-                          className={`font-black h-11 px-6 rounded-lg transition-all border-none ${
-                            containsInvoiced 
-                              ? "bg-cyan-500 hover:bg-cyan-400 text-white shadow-lg shadow-cyan-500/10" 
-                              : "bg-emerald-500 hover:bg-emerald-400 text-white shadow-lg shadow-emerald-500/10"
+                          className={`font-black h-11 px-6 rounded-lg transition-all border-none shadow-lg ${
+                            hasOrdersToLoad 
+                              ? "bg-cyan-500 hover:bg-cyan-400 text-slate-950 shadow-cyan-500/20" 
+                              : "bg-emerald-500 hover:bg-emerald-400 text-white shadow-emerald-500/20"
                           }`}
                         >
-                          {containsInvoiced ? (
+                          {hasOrdersToLoad ? (
                             <>
-                              <ArrowRight size={16} className="mr-2" /> Iniciar Carregamento
+                              <ArrowRight size={16} className="mr-2" /> Iniciar Carregamento ({ordersToLoad.length})
                             </>
                           ) : (
                             <>
-                              <CheckCircle2 size={16} className="mr-2" /> Finalizar & Despachar Carga
+                              <CheckCircle2 size={16} className="mr-2" /> Finalizar & Despachar Carga ({ordersInLoading.length})
                             </>
                           )}
                         </Button>
@@ -642,6 +681,7 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
                       {cityOrders.map((order: any) => {
                         const branch = branches.find(b => b.id === order.branchId);
+                        const isCurrentlyLoading = order.status === 'loading';
                         return (
                           <div key={order.id} className="bg-slate-900/40 rounded-lg p-4 border border-slate-800/80 flex flex-col justify-between gap-3">
                             <div className="flex items-center justify-between">
@@ -670,10 +710,10 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                             <div className="flex flex-col gap-2 pt-2 border-t border-slate-800/50">
                               <div className="flex items-center justify-between">
                                 <span className="text-[10px] font-bold text-slate-500 uppercase">Situação</span>
-                                {order.status === 'invoiced' ? (
-                                  <Badge className="bg-amber-500/10 text-amber-500 border border-amber-500/20 font-bold">Aguardando Carregamento</Badge>
+                                {isCurrentlyLoading ? (
+                                  <Badge className="bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-bold animate-pulse">Carregando no Veículo...</Badge>
                                 ) : (
-                                  <Badge className="bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-bold">Carregando...</Badge>
+                                  <Badge className="bg-amber-500/10 text-amber-500 border border-amber-500/20 font-bold">Aguardando Carregamento</Badge>
                                 )}
                               </div>
                               
@@ -699,6 +739,60 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                                 >
                                   <Printer size={12} className="mr-1" /> Etiqueta Caixa
                                 </Button>
+                              </div>
+
+                              {/* Individual Order Loading Actions */}
+                              <div className="flex items-center gap-2 pt-1">
+                                {!isCurrentlyLoading ? (
+                                  <>
+                                    <Button
+                                      size="sm"
+                                      onClick={() => {
+                                        updateBranchOrderStatus(order.id, 'loading');
+                                        toast.info(`Pedido #${order.id.toUpperCase()} agora está em Carregamento.`);
+                                      }}
+                                      className="flex-1 bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-400 border border-cyan-500/30 text-xs font-bold h-8"
+                                    >
+                                      <ArrowRight size={12} className="mr-1" /> Iniciar Carregamento
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      onClick={() => {
+                                        updateBranchOrderStatus(order.id, 'shipped');
+                                        toast.success(`Pedido #${order.id.toUpperCase()} despachado!`);
+                                      }}
+                                      className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold h-8 px-3"
+                                      title="Despachar direto para trânsito"
+                                    >
+                                      <CheckCircle2 size={12} className="mr-1" /> Despachar
+                                    </Button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Button
+                                      size="sm"
+                                      onClick={() => {
+                                        updateBranchOrderStatus(order.id, 'shipped');
+                                        toast.success(`Pedido #${order.id.toUpperCase()} despachado com sucesso!`);
+                                      }}
+                                      className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold h-8"
+                                    >
+                                      <CheckCircle2 size={12} className="mr-1" /> Despachar Carga
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => {
+                                        updateBranchOrderStatus(order.id, 'picked');
+                                        toast.info(`Carregamento desfeito para o Pedido #${order.id.toUpperCase()}.`);
+                                      }}
+                                      className="text-slate-400 hover:text-slate-200 text-xs h-8 px-2"
+                                      title="Desfazer carregamento"
+                                    >
+                                      Desfazer
+                                    </Button>
+                                  </>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -1424,7 +1518,7 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                 </div>
 
                 <div className="p-4 sm:p-6 bg-slate-900/60 border-t border-slate-800 flex flex-wrap items-center justify-between gap-4">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <Button 
                       variant="ghost" 
                       className="text-slate-400 hover:text-white border-none bg-transparent hover:bg-slate-800/30 font-bold text-xs"
@@ -1434,13 +1528,25 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                     </Button>
                     <Button 
                       variant="outline" 
-                      className="bg-rose-950/40 hover:bg-rose-900/60 text-rose-400 border-rose-800/60 font-bold h-10 px-4 rounded-lg transition-all text-xs"
+                      className="bg-slate-900 hover:bg-slate-800 text-amber-400 border-slate-700 font-bold h-10 px-3.5 rounded-lg transition-all text-xs"
                       onClick={() => {
-                        handleCancelSinglePicking(currentOrderAndState);
+                        handleCancelSinglePicking(currentOrderAndState, false);
                         setSelectedPickingOrder(null);
                       }}
+                      title="Resetar contagem e voltar para Aguardando Início"
                     >
-                      <XCircle size={16} className="mr-1.5" /> Cancelar Separação
+                      <RotateCcw size={15} className="mr-1.5" /> Resetar Separação
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      className="bg-rose-950/40 hover:bg-rose-900/60 text-rose-400 border-rose-800/60 font-bold h-10 px-3.5 rounded-lg transition-all text-xs"
+                      onClick={() => {
+                        handleCancelSinglePicking(currentOrderAndState, true);
+                        setSelectedPickingOrder(null);
+                      }}
+                      title="Devolver pedido para a fila de aprovação administrativa"
+                    >
+                      <XCircle size={15} className="mr-1.5" /> Devolver p/ Aprovação
                     </Button>
                   </div>
                   <Button 

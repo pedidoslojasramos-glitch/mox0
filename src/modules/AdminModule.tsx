@@ -23,6 +23,10 @@ import {
   FileCheck,
   Minus,
   AlertCircle,
+  AlertTriangle,
+  Box,
+  Calendar,
+  RotateCcw,
   Printer,
   Copy,
   Building2,
@@ -3863,10 +3867,54 @@ function ApprovalTab() {
   const [editItems, setEditItems] = useState<{ productId: string, quantity: number }[]>([]);
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
   const [selectedItemProductIds, setSelectedItemProductIds] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('active');
   const [branchFilter, setBranchFilter] = useState<string>('all');
-  const [dateFilter, setDateFilter] = useState<string>('');
+  const [startDateFilter, setStartDateFilter] = useState<string>('');
+  const [endDateFilter, setEndDateFilter] = useState<string>('');
+  const [datePreset, setDatePreset] = useState<string>('all');
   const [currentPage, setCurrentPage] = useState(1);
+
+  // Quick Date Preset helper
+  const applyDatePreset = (preset: string) => {
+    setDatePreset(preset);
+    const now = new Date();
+    const formatYMD = (d: Date) => {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
+    if (preset === 'today') {
+      const todayStr = formatYMD(now);
+      setStartDateFilter(todayStr);
+      setEndDateFilter(todayStr);
+    } else if (preset === 'yesterday') {
+      const y = new Date();
+      y.setDate(y.getDate() - 1);
+      const yStr = formatYMD(y);
+      setStartDateFilter(yStr);
+      setEndDateFilter(yStr);
+    } else if (preset === '7days') {
+      const d = new Date();
+      d.setDate(d.getDate() - 7);
+      setStartDateFilter(formatYMD(d));
+      setEndDateFilter(formatYMD(now));
+    } else if (preset === '30days') {
+      const d = new Date();
+      d.setDate(d.getDate() - 30);
+      setStartDateFilter(formatYMD(d));
+      setEndDateFilter(formatYMD(now));
+    } else if (preset === 'thisMonth') {
+      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+      setStartDateFilter(formatYMD(firstDay));
+      setEndDateFilter(formatYMD(now));
+    } else if (preset === 'all') {
+      setStartDateFilter('');
+      setEndDateFilter('');
+    }
+  };
 
   const filteredOrders = branchOrders.filter(o => {
     // Status Filter
@@ -3881,10 +3929,31 @@ function ApprovalTab() {
       if (o.branchId !== branchFilter) return false;
     }
 
-    // Date Filter
-    if (dateFilter) {
-      const orderDate = new Date(o.createdAt).toISOString().split('T')[0];
-      if (orderDate !== dateFilter) return false;
+    // Date Range Filter (De -> Até)
+    if (startDateFilter || endDateFilter) {
+      if (!o.createdAt) return false;
+      const orderDate = new Date(o.createdAt);
+      if (isNaN(orderDate.getTime())) return false;
+      const orderDateStr = `${orderDate.getFullYear()}-${String(orderDate.getMonth() + 1).padStart(2, '0')}-${String(orderDate.getDate()).padStart(2, '0')}`;
+      
+      if (startDateFilter && orderDateStr < startDateFilter) return false;
+      if (endDateFilter && orderDateStr > endDateFilter) return false;
+    }
+
+    // Search Query (ID, Branch, Products)
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      const branch = branches.find(b => b.id === o.branchId);
+      const branchName = (branch?.name || '').toLowerCase();
+      const orderId = (o.id || '').toLowerCase();
+      const hasProductMatch = o.items.some(item => {
+        const p = products.find(prod => prod.id === item.productId);
+        return p?.name.toLowerCase().includes(q) || p?.code.toLowerCase().includes(q);
+      });
+
+      if (!orderId.includes(q) && !branchName.includes(q) && !hasProductMatch) {
+        return false;
+      }
     }
 
     return true;
@@ -3892,10 +3961,16 @@ function ApprovalTab() {
 
   React.useEffect(() => {
     setCurrentPage(1);
-  }, [statusFilter, branchFilter, dateFilter]);
+  }, [statusFilter, branchFilter, startDateFilter, endDateFilter, searchQuery]);
 
   const reversedOrders = filteredOrders.slice().reverse();
   const paginatedOrders = reversedOrders.slice((currentPage - 1) * 15, currentPage * 15);
+
+  // Statistics
+  const pendingOrdersList = branchOrders.filter(o => o.status === 'pending');
+  const discrepancyOrdersList = branchOrders.filter(o => o.status === 'discrepancy');
+  const totalPendingValue = [...pendingOrdersList, ...discrepancyOrdersList].reduce((acc, o) => acc + (o.totalValue || 0), 0);
+  const totalFilteredValue = filteredOrders.reduce((acc, o) => acc + (o.totalValue || 0), 0);
 
   const startEdit = (order: any) => {
     setEditingOrder(order.id);
@@ -3919,12 +3994,72 @@ function ApprovalTab() {
 
   return (
     <div className="space-y-6">
+      {/* KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card className="border-slate-800 bg-slate-900/50 shadow-lg backdrop-blur-md">
+          <CardContent className="p-4 flex items-center justify-between">
+            <div>
+              <p className="text-[10px] font-bold text-amber-400 uppercase tracking-widest">Aguardando Aprovação</p>
+              <h4 className="text-2xl font-black text-white mt-1">{pendingOrdersList.length} <span className="text-xs font-normal text-slate-400">pedidos</span></h4>
+              <p className="text-[11px] text-slate-400 mt-0.5 font-mono">Total: R$ {totalPendingValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+            </div>
+            <div className="w-10 h-10 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-center justify-center text-amber-400">
+              <CheckCircle2 size={20} />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-800 bg-slate-900/50 shadow-lg backdrop-blur-md">
+          <CardContent className="p-4 flex items-center justify-between">
+            <div>
+              <p className="text-[10px] font-bold text-rose-400 uppercase tracking-widest">Divergências Relatadas</p>
+              <h4 className="text-2xl font-black text-rose-400 mt-1">{discrepancyOrdersList.length} <span className="text-xs font-normal text-slate-400">pedidos</span></h4>
+              <p className="text-[11px] text-slate-400 mt-0.5">Revisões enviadas pelas filiais</p>
+            </div>
+            <div className="w-10 h-10 bg-rose-500/10 border border-rose-500/20 rounded-xl flex items-center justify-center text-rose-400">
+              <AlertTriangle size={20} />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-800 bg-slate-900/50 shadow-lg backdrop-blur-md">
+          <CardContent className="p-4 flex items-center justify-between">
+            <div>
+              <p className="text-[10px] font-bold text-cyan-400 uppercase tracking-widest">Em Separação / Faturamento</p>
+              <h4 className="text-2xl font-black text-white mt-1">
+                {branchOrders.filter(o => o.status === 'approved' || o.status === 'picking' || o.status === 'picked').length} <span className="text-xs font-normal text-slate-400">pedidos</span>
+              </h4>
+              <p className="text-[11px] text-slate-400 mt-0.5">Fluxo logístico em andamento</p>
+            </div>
+            <div className="w-10 h-10 bg-cyan-500/10 border border-cyan-500/20 rounded-xl flex items-center justify-center text-cyan-400">
+              <Box size={20} />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-800 bg-slate-900/50 shadow-lg backdrop-blur-md">
+          <CardContent className="p-4 flex items-center justify-between">
+            <div>
+              <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">Filtrados no Período</p>
+              <h4 className="text-2xl font-black text-white mt-1">{filteredOrders.length} <span className="text-xs font-normal text-slate-400">pedidos</span></h4>
+              <p className="text-[11px] text-slate-400 mt-0.5 font-mono">R$ {totalFilteredValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+            </div>
+            <div className="w-10 h-10 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-center justify-center text-emerald-400">
+              <Calendar size={20} />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
       <Card className="border-slate-800 bg-slate-900/50 shadow-2xl backdrop-blur-xl">
         <CardHeader>
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
-              <CardTitle className="text-xl font-bold text-white">Acompanhamento e Aprovação</CardTitle>
-              <p className="text-sm text-slate-400">Gerencie aprovações e acompanhe o status dos pedidos em tempo real.</p>
+              <CardTitle className="text-xl font-bold text-white flex items-center gap-2">
+                <span>Acompanhamento e Aprovação de Pedidos</span>
+                <Badge className="bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-bold">{filteredOrders.length} Pedidos</Badge>
+              </CardTitle>
+              <p className="text-sm text-slate-400">Analise, filtre por período de datas, edite e aprove os pedidos realizados pelas filiais.</p>
             </div>
             <ExportExcelModal
               title="Exportar Pedidos das Filiais"
@@ -3957,77 +4092,158 @@ function ApprovalTab() {
             />
           </div>
           
-          <div className="mt-6 grid grid-cols-1 md:grid-cols-4 gap-4 bg-slate-950/20 p-4 rounded-xl border border-slate-800/50">
-            <div className="space-y-1.5">
-              <Label className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Status do Pedido</Label>
-              <select 
-                value={statusFilter} 
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="w-full bg-slate-900 border-slate-800 rounded-md h-9 text-slate-200 text-sm px-3 focus:ring-1 focus:ring-cyan-500 outline-none transition-all"
-              >
-                <option value="active">Todos os Ativos</option>
-                <option value="all">Ver Todos</option>
-                <optgroup label="Fases Iniciais">
-                  <option value="pending">Aguardando Aprovação</option>
-                  <option value="discrepancy">Divergência Relatada</option>
-                  <option value="approved">Aprovado</option>
-                </optgroup>
-                <optgroup label="Em Operação">
-                  <option value="picking">Em Separação</option>
-                  <option value="picked">Separado</option>
-                  <option value="invoiced">Faturado</option>
-                  <option value="loading">Carregando</option>
-                  <option value="shipped">Em Trânsito</option>
-                </optgroup>
-                <optgroup label="Finalizados">
-                  <option value="delivered">Entregue</option>
-                  <option value="rejected">Rejeitado</option>
-                </optgroup>
-              </select>
+          {/* Enhanced Filter Section */}
+          <div className="mt-6 space-y-4 bg-slate-950/40 p-4 rounded-xl border border-slate-800/80">
+            {/* Top row: Search, Status, Branch */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Buscar por ID, Filial ou Produto</Label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={15} />
+                  <Input 
+                    placeholder="Ex: #PED, Filial Centro, Cabo..." 
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="bg-slate-900 border-slate-800 text-slate-200 pl-9 h-9 text-xs"
+                  />
+                  {searchQuery && (
+                    <button 
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                    >
+                      <X size={13} />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Status do Pedido</Label>
+                <select 
+                  value={statusFilter} 
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="w-full bg-slate-900 border-slate-800 rounded-md h-9 text-slate-200 text-xs px-3 focus:ring-1 focus:ring-cyan-500 outline-none transition-all"
+                >
+                  <option value="active">Todos os Ativos</option>
+                  <option value="all">Ver Todos</option>
+                  <optgroup label="Fases Iniciais">
+                    <option value="pending">Aguardando Aprovação</option>
+                    <option value="discrepancy">Divergência Relatada</option>
+                    <option value="approved">Aprovado (Aguardando Separação)</option>
+                  </optgroup>
+                  <optgroup label="Em Operação">
+                    <option value="picking">Em Separação</option>
+                    <option value="picked">Separado</option>
+                    <option value="invoiced">Faturado</option>
+                    <option value="loading">Carregando</option>
+                    <option value="shipped">Em Trânsito</option>
+                  </optgroup>
+                  <optgroup label="Finalizados">
+                    <option value="delivered">Entregue</option>
+                    <option value="rejected">Rejeitado</option>
+                  </optgroup>
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Filial Solicitante</Label>
+                <SearchableSelect
+                  value={branchFilter}
+                  onChange={setBranchFilter}
+                  placeholder="Todas as Filiais"
+                  searchPlaceholder="Digite nome ou código da filial..."
+                  options={[
+                    { value: 'all', label: 'Todas as Filiais' },
+                    ...branches.map(b => ({
+                      value: b.id,
+                      label: b.name,
+                      code: b.code,
+                      sublabel: b.location
+                    }))
+                  ]}
+                />
+              </div>
             </div>
 
-            <div className="space-y-1.5">
-              <Label className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Filial de Destino</Label>
-              <SearchableSelect
-                value={branchFilter}
-                onChange={setBranchFilter}
-                placeholder="Todas as Filiais"
-                searchPlaceholder="Digite nome ou código da filial..."
-                options={[
-                  { value: 'all', label: 'Todas as Filiais' },
-                  ...branches.map(b => ({
-                    value: b.id,
-                    label: b.name,
-                    code: b.code,
-                    sublabel: b.location
-                  }))
-                ]}
-              />
-            </div>
+            {/* Bottom row: Period Date Filter (De / Até) + Quick Presets + Clear */}
+            <div className="pt-3 border-t border-slate-800/60 flex flex-col lg:flex-row lg:items-end justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="space-y-1">
+                  <Label className="text-[10px] text-cyan-400 uppercase font-bold tracking-wider flex items-center gap-1">
+                    <Calendar size={11} /> Data Inicial (De)
+                  </Label>
+                  <Input 
+                    type="date" 
+                    value={startDateFilter}
+                    onChange={(e) => {
+                      setStartDateFilter(e.target.value);
+                      setDatePreset('custom');
+                    }}
+                    className="bg-slate-900 border-slate-800 text-slate-200 h-8 text-xs w-36"
+                  />
+                </div>
 
-            <div className="space-y-1.5">
-              <Label className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Filtrar por Data</Label>
-              <Input 
-                type="date" 
-                value={dateFilter}
-                onChange={(e) => setDateFilter(e.target.value)}
-                className="bg-slate-900 border-slate-800 text-slate-200 h-9"
-              />
-            </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px] text-cyan-400 uppercase font-bold tracking-wider flex items-center gap-1">
+                    <Calendar size={11} /> Data Final (Até)
+                  </Label>
+                  <Input 
+                    type="date" 
+                    value={endDateFilter}
+                    onChange={(e) => {
+                      setEndDateFilter(e.target.value);
+                      setDatePreset('custom');
+                    }}
+                    className="bg-slate-900 border-slate-800 text-slate-200 h-8 text-xs w-36"
+                  />
+                </div>
 
-            <div className="flex items-end">
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                onClick={() => {
-                  setStatusFilter('active');
-                  setBranchFilter('all');
-                  setDateFilter('');
-                }}
-                className="text-slate-500 hover:text-white w-full border border-dashed border-slate-800 hover:border-slate-700 h-9"
-              >
-                <XCircle size={14} className="mr-2" /> Limpar Filtros
-              </Button>
+                {/* Quick Period Presets */}
+                <div className="space-y-1">
+                  <Label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">Atalhos de Período</Label>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {[
+                      { id: 'today', label: 'Hoje' },
+                      { id: 'yesterday', label: 'Ontem' },
+                      { id: '7days', label: '7 Dias' },
+                      { id: '30days', label: '30 Dias' },
+                      { id: 'thisMonth', label: 'Este Mês' },
+                      { id: 'all', label: 'Todo Período' },
+                    ].map(p => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => applyDatePreset(p.id)}
+                        className={`text-[11px] font-bold px-2.5 py-1 rounded-md border transition-all ${
+                          datePreset === p.id 
+                            ? 'bg-cyan-500 text-slate-950 border-cyan-400 shadow-sm' 
+                            : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border-slate-800'
+                        }`}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={() => {
+                    setStatusFilter('active');
+                    setBranchFilter('all');
+                    setStartDateFilter('');
+                    setEndDateFilter('');
+                    setDatePreset('all');
+                    setSearchQuery('');
+                  }}
+                  className="text-slate-400 hover:text-white border border-dashed border-slate-800 hover:border-slate-700 h-8 px-3 text-xs"
+                >
+                  <XCircle size={13} className="mr-1.5" /> Limpar Filtros
+                </Button>
+              </div>
             </div>
           </div>
         </CardHeader>

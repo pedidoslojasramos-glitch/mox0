@@ -77,9 +77,16 @@ import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import LimitsModule from './LimitsModule';
 import { RoutesModule } from './RoutesModule';
+import LogisticsModule from './LogisticsModule';
+import { toValidUUID } from '../services/ramoxContext';
 
 export default function AdminModule({ initialTab }: { initialTab?: string }) {
+  const { branchOrders } = useRamoxContext();
   const [activeTab, setActiveTab] = useState(initialTab || 'products');
+
+  const approvalCount = (branchOrders || []).filter(o => o.status === 'pending' || o.status === 'discrepancy').length;
+  const pickingCount = (branchOrders || []).filter(o => o.status === 'approved' || o.status === 'picking').length;
+  const invoicingCount = (branchOrders || []).filter(o => o.status === 'picked').length;
 
   // Sync state if initialTab changes from parent
   React.useEffect(() => {
@@ -97,6 +104,7 @@ export default function AdminModule({ initialTab }: { initialTab?: string }) {
       case 'purchases': return 'Pedidos de Compra';
       case 'distribution': return 'Distribuição de Mercadorias';
       case 'approval': return 'Aprovação de Pedidos (Filiais)';
+      case 'picking': return 'Fila de Separação (Picking)';
       case 'invoicing': return 'Faturamento de Pedidos';
       case 'limits': return 'Controle de Limites e Cotas';
       default: return 'Módulo Administrativo';
@@ -112,6 +120,7 @@ export default function AdminModule({ initialTab }: { initialTab?: string }) {
       case 'purchases': return 'Emita e acompanhe pedidos de compra para reposição.';
       case 'distribution': return 'Distribua mercadorias do estoque central para as filiais.';
       case 'approval': return 'Analise, edite e aprove os pedidos realizados pelas filiais.';
+      case 'picking': return 'Acompanhe a fila de separação física e conferência dos pedidos aprovados.';
       case 'invoicing': return 'Realize o faturamento dos pedidos conferidos pela logística.';
       case 'limits': return 'Configure cotas de limites mensais por produto e verbas por pedido.';
       default: return 'Gestão de cadastros, fornecedores e compras.';
@@ -164,13 +173,19 @@ export default function AdminModule({ initialTab }: { initialTab?: string }) {
               value="approval" 
               className="flex-none rounded-md px-8 py-3 bg-amber-500/10 text-amber-400 data-[state=active]:bg-amber-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_20px_rgba(245,158,11,0.4)] font-bold transition-all hover:bg-amber-500/20 hover:text-amber-300 border border-amber-500/20 data-[state=active]:border-amber-500"
             >
-              Aprovação
+              Aprovação {approvalCount > 0 ? `(${approvalCount})` : ''}
+            </TabsTrigger>
+            <TabsTrigger 
+              value="picking" 
+              className="flex-none rounded-md px-8 py-3 bg-amber-500/10 text-amber-400 data-[state=active]:bg-amber-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_20px_rgba(245,158,11,0.4)] font-bold transition-all hover:bg-amber-500/20 hover:text-amber-300 border border-amber-500/20 data-[state=active]:border-amber-500"
+            >
+              Separação {pickingCount > 0 ? `(${pickingCount})` : ''}
             </TabsTrigger>
             <TabsTrigger 
               value="invoicing" 
               className="flex-none rounded-md px-8 py-3 bg-emerald-500/10 text-emerald-400 data-[state=active]:bg-emerald-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_20px_rgba(16,185,129,0.4)] font-bold transition-all hover:bg-emerald-500/20 hover:text-emerald-300 border border-emerald-500/20 data-[state=active]:border-emerald-500"
             >
-              Faturamento
+              Faturamento {invoicingCount > 0 ? `(${invoicingCount})` : ''}
             </TabsTrigger>
             <TabsTrigger 
               value="routes" 
@@ -212,7 +227,11 @@ export default function AdminModule({ initialTab }: { initialTab?: string }) {
         </TabsContent>
 
         <TabsContent value="approval">
-          <ApprovalTab />
+          <ApprovalTab onNavigateToTab={setActiveTab} />
+        </TabsContent>
+
+        <TabsContent value="picking">
+          <LogisticsModule initialTab="picking_cities" />
         </TabsContent>
 
         <TabsContent value="invoicing">
@@ -1115,12 +1134,35 @@ function DistributionTab() {
       }
     }
 
+    // Check if any selected product has zero allocation to prevent emitting incomplete separations
+    const zeroAllocProducts = selectedProducts.filter(productId => {
+      const templateQty = templateQuantities[productId] || 0;
+      const hasAnyAlloc = selectedBranchIds.some(branchId => {
+        const allocVal = allocations[productId]?.[branchId];
+        const qty = (allocVal !== undefined && allocVal !== null) ? Number(allocVal) : templateQty;
+        return Number(qty) > 0;
+      });
+      return !hasAnyAlloc;
+    });
+
+    if (zeroAllocProducts.length > 0) {
+      const firstZeroProd = products.find(p => p.id === zeroAllocProducts[0]);
+      toast.error(`O produto "${firstZeroProd?.name || 'selecionado'}" não possui quantidade definida para as filiais. Digite a quantidade padrão para que a separação não fique incompleta.`);
+      setActiveProductId(zeroAllocProducts[0]);
+      return;
+    }
+
     const items = selectedProducts.map(productId => {
-      const quantityPerBranch = selectedBranchIds.map(branchId => ({
-        branchId,
-        quantity: allocations[productId]?.[branchId] || 0,
-        recipientName: distributionType === 'epi' ? (recipients[branchId] || '') : undefined
-      })).filter(q => q.quantity > 0);
+      const templateQty = templateQuantities[productId] || 0;
+      const quantityPerBranch = selectedBranchIds.map(branchId => {
+        const allocVal = allocations[productId]?.[branchId];
+        const qty = (allocVal !== undefined && allocVal !== null) ? Number(allocVal) : templateQty;
+        return {
+          branchId,
+          quantity: Math.max(0, Number(qty) || 0),
+          recipientName: distributionType === 'epi' ? (recipients[branchId] || '') : undefined
+        };
+      }).filter(q => q.quantity > 0);
 
       return {
         productId,
@@ -3861,8 +3903,8 @@ function PurchasesTab() {
   );
 }
 
-function ApprovalTab() {
-  const { branchOrders, branches, products, updateBranchOrderStatus, updateBranchOrderItems, currentUser } = useRamoxContext();
+function ApprovalTab({ onNavigateToTab }: { onNavigateToTab?: (tab: string) => void } = {}) {
+  const { branchOrders, branches, products, updateBranchOrderStatus, batchUpdateBranchOrderStatus, updateBranchOrderItems, currentUser } = useRamoxContext();
   const [editingOrder, setEditingOrder] = useState<string | null>(null);
   const [editItems, setEditItems] = useState<{ productId: string, quantity: number }[]>([]);
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
@@ -3874,6 +3916,17 @@ function ApprovalTab() {
   const [endDateFilter, setEndDateFilter] = useState<string>('');
   const [datePreset, setDatePreset] = useState<string>('all');
   const [currentPage, setCurrentPage] = useState(1);
+
+  const findBranch = (branchId?: string) => {
+    if (!branchId) return undefined;
+    const clean = branchId.trim().toLowerCase();
+    return branches.find(b => 
+      b.id.toLowerCase() === clean || 
+      toValidUUID(b.id) === toValidUUID(branchId) ||
+      b.name.toLowerCase() === clean ||
+      (b.code && b.code.toLowerCase() === clean)
+    );
+  };
 
   // Quick Date Preset helper
   const applyDatePreset = (preset: string) => {
@@ -3926,7 +3979,11 @@ function ApprovalTab() {
 
     // Branch Filter
     if (branchFilter !== 'all') {
-      if (o.branchId !== branchFilter) return false;
+      const matchBranch = findBranch(o.branchId);
+      const isMatch = o.branchId === branchFilter || 
+                      toValidUUID(o.branchId) === toValidUUID(branchFilter) || 
+                      (matchBranch && matchBranch.id === branchFilter);
+      if (!isMatch) return false;
     }
 
     // Date Range Filter (De -> Até)
@@ -3943,15 +4000,16 @@ function ApprovalTab() {
     // Search Query (ID, Branch, Products)
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
-      const branch = branches.find(b => b.id === o.branchId);
+      const branch = findBranch(o.branchId);
       const branchName = (branch?.name || '').toLowerCase();
+      const branchLoc = (branch?.location || '').toLowerCase();
       const orderId = (o.id || '').toLowerCase();
-      const hasProductMatch = o.items.some(item => {
-        const p = products.find(prod => prod.id === item.productId);
-        return p?.name.toLowerCase().includes(q) || p?.code.toLowerCase().includes(q);
+      const hasProductMatch = (o.items || []).some(item => {
+        const p = products.find(prod => prod.id === item.productId || toValidUUID(prod.id) === toValidUUID(item.productId));
+        return (p?.name && p.name.toLowerCase().includes(q)) || (p?.code && p.code.toLowerCase().includes(q));
       });
 
-      if (!orderId.includes(q) && !branchName.includes(q) && !hasProductMatch) {
+      if (!orderId.includes(q) && !branchName.includes(q) && !branchLoc.includes(q) && !hasProductMatch) {
         return false;
       }
     }
@@ -4282,7 +4340,15 @@ function ApprovalTab() {
                     selectedOrderIds.forEach(id => {
                       updateBranchOrderStatus(id, 'approved', currentUser?.name || 'Administrador Central');
                     });
-                    toast.success(`${selectedOrderIds.length} pedido(s) aprovado(s) em lote.`);
+                    toast.success(`${selectedOrderIds.length} pedido(s) aprovado(s) e enviado(s) para separação!`, {
+                      action: {
+                        label: 'Ir para Separação',
+                        onClick: () => {
+                          if (onNavigateToTab) onNavigateToTab('picking');
+                          window.dispatchEvent(new CustomEvent('navigate-tab', { detail: 'admin_picking' }));
+                        }
+                      }
+                    });
                     setSelectedOrderIds([]);
                   }}
                 >
@@ -4521,7 +4587,15 @@ function ApprovalTab() {
                               className={`${isDiscrepancy ? 'bg-red-500 hover:bg-red-400' : 'bg-amber-500 hover:bg-amber-400'} text-white font-bold h-9 px-4 rounded-md shadow-lg`}
                               onClick={() => {
                                 updateBranchOrderStatus(order.id, 'approved', currentUser?.name || 'Administrador Central');
-                                toast.success(isDiscrepancy ? 'Divergência tratada e pedido re-enviado!' : 'Pedido aprovado e enviado para separação!');
+                                toast.success(isDiscrepancy ? 'Divergência tratada e pedido re-enviado!' : 'Pedido aprovado e enviado para a fila de separação!', {
+                                  action: {
+                                    label: 'Ir para Separação',
+                                    onClick: () => {
+                                      if (onNavigateToTab) onNavigateToTab('picking');
+                                      window.dispatchEvent(new CustomEvent('navigate-tab', { detail: 'admin_picking' }));
+                                    }
+                                  }
+                                });
                               }}
                             >
                               <CheckCircle2 size={16} className="mr-2" /> {isDiscrepancy ? 'Aprovar Revisão' : 'Aprovar'}
@@ -4529,6 +4603,19 @@ function ApprovalTab() {
                           </>
                         ) : order.status !== 'rejected' && order.status !== 'delivered' ? (
                           <div className="flex items-center gap-2">
+                            {(order.status === 'approved' || order.status === 'picking') && (
+                              <Button 
+                                size="sm" 
+                                className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold h-8 px-2.5 rounded-md text-xs shadow-md transition-all"
+                                onClick={() => {
+                                  if (onNavigateToTab) onNavigateToTab('picking');
+                                  window.dispatchEvent(new CustomEvent('navigate-tab', { detail: 'admin_picking' }));
+                                }}
+                                title="Ver este pedido na fila de separação física"
+                              >
+                                <Box size={14} className="mr-1 text-slate-950" /> Ir p/ Separação
+                              </Button>
+                            )}
                             <Button 
                               size="sm" 
                               variant="outline"

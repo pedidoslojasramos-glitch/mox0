@@ -98,14 +98,294 @@ export function isDeleted(id: string | undefined | null): boolean {
   return set.has(uuid);
 }
 
+const CANCELLED_ORDERS_KEY = 'ramox_cancelled_orders_v1';
+const CANCELLED_DIST_BRANCHES_KEY = 'ramox_cancelled_dist_branches_v1';
+
+export function getCancelledOrderIds(): Set<string> {
+  try {
+    if (typeof window === 'undefined') return new Set();
+    const raw = localStorage.getItem(CANCELLED_ORDERS_KEY);
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch (e) {
+    return new Set();
+  }
+}
+
+export function markAsCancelled(...ids: (string | undefined | null)[]) {
+  try {
+    if (typeof window === 'undefined') return;
+    const set = getCancelledOrderIds();
+    ids.forEach(id => {
+      if (id) {
+        const str = id.toString().trim().toLowerCase();
+        if (str) {
+          set.add(str);
+          const uuid = toValidUUID(str);
+          if (uuid) set.add(uuid.toLowerCase());
+        }
+      }
+    });
+    localStorage.setItem(CANCELLED_ORDERS_KEY, JSON.stringify(Array.from(set)));
+  } catch (e) {}
+}
+
+export function isOrderCancelled(id: string | undefined | null): boolean {
+  if (!id) return false;
+  const set = getCancelledOrderIds();
+  const clean = id.toString().trim().toLowerCase();
+  if (set.has(clean)) return true;
+  const uuid = toValidUUID(id.toString()).toLowerCase();
+  return set.has(uuid);
+}
+
+export function getCancelledDistBranches(): Set<string> {
+  try {
+    if (typeof window === 'undefined') return new Set();
+    const raw = localStorage.getItem(CANCELLED_DIST_BRANCHES_KEY);
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch (e) {
+    return new Set();
+  }
+}
+
+export function markDistBranchCancelled(distId?: string, branchId?: string) {
+  try {
+    if (typeof window === 'undefined' || !distId || !branchId) return;
+    const set = getCancelledDistBranches();
+    const cleanDist = distId.toString().trim().toLowerCase();
+    const cleanBranch = branchId.toString().trim().toLowerCase();
+    set.add(`${cleanDist}_${cleanBranch}`);
+    const branchUuid = toValidUUID(cleanBranch).toLowerCase();
+    if (branchUuid) {
+      set.add(`${cleanDist}_${branchUuid}`);
+    }
+    localStorage.setItem(CANCELLED_DIST_BRANCHES_KEY, JSON.stringify(Array.from(set)));
+  } catch (e) {}
+}
+
+export function isDistBranchCancelled(distId?: string, branchId?: string): boolean {
+  if (!distId || !branchId) return false;
+  const set = getCancelledDistBranches();
+  const cleanDist = distId.toString().trim().toLowerCase();
+  const cleanBranch = branchId.toString().trim().toLowerCase();
+  if (set.has(`${cleanDist}_${cleanBranch}`)) return true;
+  const branchUuid = toValidUUID(cleanBranch).toLowerCase();
+  if (branchUuid && set.has(`${cleanDist}_${branchUuid}`)) return true;
+  return false;
+}
+
+export function extractDistIdFromOrder(order?: { notes?: string; approvedBy?: string } | null): string | undefined {
+  if (!order) return undefined;
+  const text = `${order.notes || ''} ${order.approvedBy || ''}`;
+  const match = text.match(/Lote\s*#?([A-Za-z0-9_-]+)/i);
+  return match ? match[1].toLowerCase() : undefined;
+}
+
+export function findProductHelper(products: Product[], productIdOrCode?: string): Product | undefined {
+  if (!productIdOrCode || !products || products.length === 0) return undefined;
+  const clean = productIdOrCode.toString().trim().toLowerCase();
+  const uuid = toValidUUID(clean);
+
+  // 1. Direct match on id
+  let match = products.find(p => p.id.toLowerCase() === clean);
+  if (match) return match;
+
+  // 2. Match on UUID
+  if (uuid) {
+    match = products.find(p => toValidUUID(p.id).toLowerCase() === uuid.toLowerCase());
+    if (match) return match;
+  }
+
+  // 3. Match on code
+  match = products.find(p => p.code && p.code.toLowerCase().trim() === clean);
+  if (match) return match;
+
+  // 4. Match on name
+  match = products.find(p => p.name && p.name.toLowerCase().trim() === clean);
+  if (match) return match;
+
+  return undefined;
+}
+
+export function reconcileDistributionOrders(currentState: any): any {
+  if (!currentState || !Array.isArray(currentState.distributions) || currentState.distributions.length === 0) {
+    return currentState;
+  }
+
+  const products: Product[] = currentState.products || [];
+  const branches: Branch[] = currentState.branches || [];
+  let branchOrders: BranchOrder[] = Array.isArray(currentState.branchOrders) ? [...currentState.branchOrders] : [];
+  let hasChanges = false;
+
+  const getCanonicalBranch = (bId: string): Branch | undefined => {
+    if (!bId) return undefined;
+    const clean = bId.toString().trim().toLowerCase();
+    return branches.find(b => 
+      b.id.toLowerCase() === clean || 
+      toValidUUID(b.id) === toValidUUID(bId) ||
+      b.name.toLowerCase() === clean ||
+      (b.code && b.code.toLowerCase() === clean)
+    );
+  };
+
+  currentState.distributions.forEach((dist: Distribution) => {
+    if (!dist || !Array.isArray(dist.items)) return;
+
+    // Map: canonicalBranchId -> Map<canonicalProductId, quantity>
+    const branchExpectedItems = new Map<string, Map<string, number>>();
+
+    dist.items.forEach(item => {
+      if (!item || !Array.isArray(item.quantityPerBranch)) return;
+      const prod = findProductHelper(products, item.productId);
+      const canonicalProdId = prod ? prod.id : item.productId;
+
+      item.quantityPerBranch.forEach(q => {
+        if (!q || !q.quantity || Number(q.quantity) <= 0) return;
+        const branch = getCanonicalBranch(q.branchId);
+        const canonicalBId = branch ? branch.id : q.branchId;
+
+        if (!branchExpectedItems.has(canonicalBId)) {
+          branchExpectedItems.set(canonicalBId, new Map<string, number>());
+        }
+        const pMap = branchExpectedItems.get(canonicalBId)!;
+        pMap.set(canonicalProdId, (pMap.get(canonicalProdId) || 0) + Number(q.quantity));
+      });
+    });
+
+    branchExpectedItems.forEach((expectedProdMap, canonicalBranchId) => {
+      const branch = getCanonicalBranch(canonicalBranchId);
+      const distIdClean = (dist.id || '').toUpperCase();
+
+      // If this distribution for this branch was explicitly cancelled or deleted, never recreate or reactivate it!
+      if (isDistBranchCancelled(dist.id, canonicalBranchId)) {
+        return;
+      }
+
+      // Find existing order for this branch that came from this distribution
+      const orderIndex = branchOrders.findIndex(o => {
+        if (!o) return false;
+        const matchesBranch = o.branchId === canonicalBranchId || 
+                              toValidUUID(o.branchId) === toValidUUID(canonicalBranchId) ||
+                              (branch && o.branchId === branch.id);
+        if (!matchesBranch) return false;
+
+        const hasDistTag = (o.notes && distIdClean && o.notes.toUpperCase().includes(distIdClean)) ||
+                           (o.notes && o.notes.toLowerCase().includes('distribuição')) ||
+                           (o.approvedBy && o.approvedBy.toLowerCase().includes('distribuição'));
+
+        return hasDistTag;
+      });
+
+      if (orderIndex >= 0) {
+        const existingOrder = branchOrders[orderIndex];
+
+        // If existing order was cancelled (rejected) or marked deleted, honor the cancellation!
+        if (existingOrder.status === 'rejected' || isOrderCancelled(existingOrder.id) || isDeleted(existingOrder.id)) {
+          markDistBranchCancelled(dist.id, canonicalBranchId);
+          if (existingOrder.status !== 'rejected') {
+            branchOrders[orderIndex] = { ...existingOrder, status: 'rejected' };
+            hasChanges = true;
+          }
+          return;
+        }
+
+        const currentItemsMap = new Map<string, number>();
+
+        (existingOrder.items || []).forEach(it => {
+          if (!it) return;
+          const p = findProductHelper(products, it.productId);
+          const pId = p ? p.id : it.productId;
+          currentItemsMap.set(pId, (currentItemsMap.get(pId) || 0) + (Number(it.quantity) || 0));
+        });
+
+        let orderModified = false;
+        expectedProdMap.forEach((expQty, pId) => {
+          const curQty = currentItemsMap.get(pId) || 0;
+          if (curQty < expQty) {
+            currentItemsMap.set(pId, expQty);
+            orderModified = true;
+          }
+        });
+
+        if (orderModified) {
+          const newItems: { productId: string; quantity: number }[] = [];
+          currentItemsMap.forEach((quantity, productId) => {
+            newItems.push({ productId, quantity });
+          });
+          const totalValue = newItems.reduce((acc, it) => {
+            const prod = findProductHelper(products, it.productId);
+            return acc + (prod ? prod.price * it.quantity : 0);
+          }, 0);
+
+          branchOrders[orderIndex] = {
+            ...existingOrder,
+            items: newItems,
+            totalValue: totalValue > 0 ? totalValue : existingOrder.totalValue,
+            orderType: dist.type === 'epi' ? 'epi' : 'distribution',
+            notes: existingOrder.notes || (dist.type === 'epi' ? `Distribuição de EPIs (Lote #${distIdClean})` : `Distribuição em Massa (Lote #${distIdClean})`)
+          };
+          hasChanges = true;
+        }
+      } else {
+        // If this distribution for this branch was previously cancelled or marked deleted, DO NOT recreate it!
+        if (isDistBranchCancelled(dist.id, canonicalBranchId)) {
+          return;
+        }
+
+        // Missing order for this branch from this distribution! Restore it so it appears in the separation panel
+        const newOrderId = Math.random().toString(36).substr(2, 9);
+        const branchItems: { productId: string; quantity: number }[] = [];
+        expectedProdMap.forEach((quantity, productId) => {
+          branchItems.push({ productId, quantity });
+        });
+
+        const totalValue = branchItems.reduce((acc, it) => {
+          const prod = findProductHelper(products, it.productId);
+          return acc + (prod ? prod.price * it.quantity : 0);
+        }, 0);
+
+        const recipient = dist.recipients?.[canonicalBranchId] || 
+                          dist.recipients?.[toValidUUID(canonicalBranchId)] || 
+                          branch?.manager || 
+                          undefined;
+
+        branchOrders.push({
+          id: newOrderId,
+          branchId: canonicalBranchId,
+          items: branchItems,
+          status: 'approved',
+          totalValue,
+          createdAt: dist.createdAt || new Date().toISOString(),
+          approvedBy: dist.type === 'epi' ? 'Distribuição de EPIs' : 'Distribuição Central (Em Lote)',
+          approvedAt: dist.createdAt || new Date().toISOString(),
+          notes: dist.type === 'epi'
+            ? `Distribuição de EPIs (Lote #${distIdClean})`
+            : `Distribuição em Massa (Lote #${distIdClean})`,
+          recipientName: recipient,
+          orderType: dist.type === 'epi' ? 'epi' : 'distribution'
+        });
+        hasChanges = true;
+      }
+    });
+  });
+
+  if (hasChanges) {
+    const updated = { ...currentState, branchOrders };
+    mockDb.save(updated);
+    return updated;
+  }
+
+  return currentState;
+}
+
 export function useRamox() {
-  const [state, setState] = useState(mockDb.get());
+  const [state, setState] = useState(() => reconcileDistributionOrders(mockDb.get()));
   const [globalSearch, setGlobalSearch] = useState('');
   const isInitialLoadCompleteRef = useRef(false);
 
   const refreshData = async () => {
-    // 1. Re-sync from localStorage / mockDb immediately
-    const freshLocal = mockDb.get();
+    // 1. Re-sync from localStorage / mockDb immediately with reconciliation
+    const freshLocal = reconcileDistributionOrders(mockDb.get());
     setState(prev => ({
       ...prev,
       ...freshLocal,
@@ -258,23 +538,99 @@ export function useRamox() {
         if (!errOrders && Array.isArray(dbBranchOrders)) {
           const mappedOrders = dbBranchOrders
             .filter((o: any) => o && !isDeleted(o.id))
-            .map((o: any) => ({
-              id: o.id,
-              branchId: o.branch_id || o.branchId,
-              status: o.status,
-              totalValue: Number(o.total_value ?? o.totalValue) || 0,
-              items: o.items || [],
-              createdAt: o.created_at || o.createdAt,
-              approvedBy: o.approved_by || o.approvedBy || undefined,
-              approvedAt: o.approved_at || o.approvedAt || undefined
-            }));
+            .map((o: any) => {
+              // Try to map UUID branchId back to canonical branch ID if found in updated.branches
+              const matchingBranch = updated.branches.find(b => 
+                b.id === o.branch_id || 
+                toValidUUID(b.id) === toValidUUID(o.branch_id) || 
+                b.id === o.branchId ||
+                toValidUUID(b.id) === toValidUUID(o.branchId)
+              );
+              const branchId = matchingBranch ? matchingBranch.id : (o.branch_id || o.branchId);
+
+              // Parse items if string
+              let rawItems = o.items;
+              if (typeof rawItems === 'string') {
+                try {
+                  rawItems = JSON.parse(rawItems);
+                } catch (e) {
+                  rawItems = [];
+                }
+              }
+
+              const safeItems = Array.isArray(rawItems) ? rawItems.map((it: any) => {
+                const prod = findProductHelper(updated.products, it.productId);
+                return {
+                  productId: prod ? prod.id : it.productId,
+                  quantity: Number(it.quantity) || 0
+                };
+              }) : [];
+
+              return {
+                id: o.id,
+                branchId,
+                status: o.status,
+                totalValue: Number(o.total_value ?? o.totalValue) || 0,
+                items: safeItems,
+                createdAt: o.created_at || o.createdAt,
+                approvedBy: o.approved_by || o.approvedBy || undefined,
+                approvedAt: o.approved_at || o.approvedAt || undefined,
+                notes: o.notes || undefined,
+                recipientName: o.recipient_name || o.recipientName || undefined,
+                orderType: o.order_type || o.orderType || undefined
+              };
+            });
 
           const localOnlyOrders = (prev.branchOrders || []).filter(lo => 
             lo && !isDeleted(lo.id) &&
             !mappedOrders.some(so => so.id === lo.id || toValidUUID(so.id) === toValidUUID(lo.id))
           );
 
-          updated.branchOrders = [...mappedOrders, ...localOnlyOrders];
+          // If local orders have advanced operational statuses (e.g. approved, picking, loading), do not regress them
+          const operationalStatusOrder = ['pending', 'discrepancy', 'approved', 'picking', 'picked', 'invoiced', 'loading', 'shipped', 'delivered', 'rejected'];
+          const mergedOrders = mappedOrders.map(so => {
+            const localMatch = (prev.branchOrders || []).find(lo => 
+              lo.id === so.id || 
+              toValidUUID(lo.id) === toValidUUID(so.id) ||
+              lo.id.toLowerCase().trim() === so.id.toLowerCase().trim()
+            );
+            if (localMatch) {
+              // Critical: If local was rejected (cancelled) OR remote was rejected OR order is cancelled in storage, status MUST remain 'rejected'!
+              let preferredStatus: BranchOrder['status'] = so.status;
+              if (
+                localMatch.status === 'rejected' ||
+                so.status === 'rejected' ||
+                isOrderCancelled(localMatch.id) ||
+                isOrderCancelled(so.id)
+              ) {
+                preferredStatus = 'rejected';
+              } else {
+                const localIndex = operationalStatusOrder.indexOf(localMatch.status);
+                const remoteIndex = operationalStatusOrder.indexOf(so.status);
+                preferredStatus = (localIndex > remoteIndex) ? localMatch.status : so.status;
+              }
+
+              // If localMatch has items and remote has fewer/empty items, preserve localMatch items so separation is complete
+              const preferredItems = (localMatch.items && localMatch.items.length >= (so.items?.length || 0))
+                ? localMatch.items
+                : so.items;
+
+              return {
+                ...so,
+                ...localMatch,
+                status: preferredStatus,
+                items: preferredItems,
+                approvedBy: localMatch.approvedBy || so.approvedBy,
+                approvedAt: localMatch.approvedAt || so.approvedAt,
+                notes: localMatch.notes || so.notes,
+                recipientName: localMatch.recipientName || so.recipientName,
+                orderType: localMatch.orderType || so.orderType
+              };
+            }
+            return so;
+          });
+
+          updated.branchOrders = [...mergedOrders, ...localOnlyOrders];
         }
 
         if (!errPO && Array.isArray(dbPurchaseOrders)) {
@@ -297,8 +653,9 @@ export function useRamox() {
           updated.purchaseOrders = [...mappedPOs, ...localOnlyPOs];
         }
 
-        mockDb.save(updated);
-        return updated;
+        const reconciled = reconcileDistributionOrders(updated);
+        mockDb.save(reconciled);
+        return reconciled;
       });
     } catch (e) {
       console.warn('Erro ao carregar dados do Supabase:', e);
@@ -312,7 +669,7 @@ export function useRamox() {
     refreshData();
   }, []);
 
-  // Save to local storage & sync to Supabase on state change
+  // Save to local storage & sync to Supabase on state change with debounce
   useEffect(() => {
     mockDb.save(state);
 
@@ -321,120 +678,83 @@ export function useRamox() {
     }
 
     const client = getSupabase();
-    if (client) {
-      // Background sync to Supabase
-      const sync = async () => {
-        try {
-          const validBranches = state.branches.filter(b => b && b.id && !isDeleted(b.id));
-          if (validBranches.length > 0) {
-            const payload = validBranches.map(b => ({
-              id: toValidUUID(b.id),
-              name: b.name,
-              location: b.location || '',
-              manager: b.manager || ''
-            }));
-            await client.from('branches').upsert(payload);
-          }
+    if (!client) return;
 
-          const validSuppliers = state.suppliers.filter(s => s && s.id && !isDeleted(s.id));
-          if (validSuppliers.length > 0) {
-            const payload = validSuppliers.map(s => ({
-              id: toValidUUID(s.id),
-              name: s.name,
-              code: s.code,
-              cnpj: s.cnpj || '',
-              contact: s.contact || ''
-            }));
-            await client.from('suppliers').upsert(payload);
-          }
-
-          const validProducts = state.products.filter(p => p && p.id && !isDeleted(p.id));
-          if (validProducts.length > 0) {
-            const payload = validProducts.map(p => ({
-              id: toValidUUID(p.id),
-              name: p.name,
-              code: p.code,
-              category: p.category,
-              unit: p.unit,
-              price: p.price,
-              current_stock: p.currentStock,
-              min_stock: p.minStock,
-              image: p.image || ''
-            }));
-            await client.from('products').upsert(payload);
-          }
-
-          const validUsers = state.users.filter(u => u && u.id && !isDeleted(u.id));
-          if (validUsers.length > 0) {
-            for (const u of validUsers) {
-              const targetBranch = state.branches.find(b => 
-                b.id === u.branchId || 
-                toValidUUID(b.id) === toValidUUID(u.branchId) || 
-                b.name.toLowerCase().trim() === (u.branchId || '').toLowerCase().trim()
-              );
-              const branchIdToUse = targetBranch ? toValidUUID(targetBranch.id) : null;
-
-              const userRow = {
-                id: toValidUUID(u.id),
-                name: u.name,
-                email: u.email,
-                role: u.role,
-                password: u.password ? String(u.password).trim() : '123456',
-                branch_id: branchIdToUse
-              };
-
-              let { error } = await client.from('users').upsert(userRow, { onConflict: 'email' });
-              if (error) {
-                let rowToTry = { ...userRow };
-                if (error.message.includes('password')) {
-                  delete (rowToTry as any).password;
-                }
-                if (error.code === '23503' || error.message.includes('foreign key')) {
-                  rowToTry.branch_id = null;
-                }
-                let res2 = await client.from('users').upsert(rowToTry, { onConflict: 'email' });
-                if (res2.error && (res2.error.code === '23503' || res2.error.message.includes('foreign key') || res2.error.message.includes('password'))) {
-                  rowToTry.branch_id = null;
-                  delete (rowToTry as any).password;
-                  await client.from('users').upsert(rowToTry, { onConflict: 'email' });
-                }
-              }
-            }
-          }
-
-          const validOrders = state.branchOrders.filter(o => o && !isDeleted(o.id));
-          if (validOrders.length > 0) {
-            const payload = validOrders.map(o => ({
-              id: toValidUUID(o.id),
-              branch_id: toValidUUID(o.branchId),
-              status: o.status,
-              total_value: o.totalValue || 0,
-              items: o.items,
-              approved_by: o.approvedBy || null,
-              approved_at: o.approvedAt || null,
-              created_at: o.createdAt
-            }));
-            await client.from('branch_orders').upsert(payload);
-          }
-
-          const validPurchaseOrders = state.purchaseOrders.filter(po => po && !isDeleted(po.id));
-          if (validPurchaseOrders.length > 0) {
-            const payload = validPurchaseOrders.map(po => ({
-              id: toValidUUID(po.id),
-              supplier_id: toValidUUID(po.supplierId),
-              status: po.status,
-              total_value: po.totalValue || 0,
-              items: po.items,
-              created_at: po.createdAt
-            }));
-            await client.from('purchase_orders').upsert(payload);
-          }
-        } catch (err) {
-          console.warn('Falha na sincronização assíncrona com Supabase:', err);
+    // Debounce background network syncing to avoid thread locking & high CPU/network contention
+    const timer = setTimeout(async () => {
+      try {
+        const validBranches = state.branches.filter(b => b && b.id && !isDeleted(b.id));
+        if (validBranches.length > 0) {
+          const payload = validBranches.map(b => ({
+            id: toValidUUID(b.id),
+            name: b.name,
+            location: b.location || '',
+            manager: b.manager || ''
+          }));
+          await client.from('branches').upsert(payload);
         }
-      };
-      sync();
-    }
+
+        const validSuppliers = state.suppliers.filter(s => s && s.id && !isDeleted(s.id));
+        if (validSuppliers.length > 0) {
+          const payload = validSuppliers.map(s => ({
+            id: toValidUUID(s.id),
+            name: s.name,
+            code: s.code,
+            cnpj: s.cnpj || '',
+            contact: s.contact || ''
+          }));
+          await client.from('suppliers').upsert(payload);
+        }
+
+        const validProducts = state.products.filter(p => p && p.id && !isDeleted(p.id));
+        if (validProducts.length > 0) {
+          const payload = validProducts.map(p => ({
+            id: toValidUUID(p.id),
+            name: p.name,
+            code: p.code,
+            category: p.category,
+            unit: p.unit,
+            price: p.price,
+            current_stock: p.currentStock,
+            min_stock: p.minStock,
+            image: p.image || ''
+          }));
+          await client.from('products').upsert(payload);
+        }
+
+        const validOrders = state.branchOrders.filter(o => o && !isDeleted(o.id));
+        if (validOrders.length > 0) {
+          const payload = validOrders.map(o => ({
+            id: toValidUUID(o.id),
+            branch_id: toValidUUID(o.branchId),
+            status: o.status,
+            total_value: o.totalValue || 0,
+            items: o.items,
+            approved_by: o.approvedBy || null,
+            approved_at: o.approvedAt || null,
+            created_at: o.createdAt
+          }));
+          await client.from('branch_orders').upsert(payload);
+        }
+
+        const validPurchaseOrders = state.purchaseOrders.filter(po => po && !isDeleted(po.id));
+        if (validPurchaseOrders.length > 0) {
+          const payload = validPurchaseOrders.map(po => ({
+            id: toValidUUID(po.id),
+            supplier_id: toValidUUID(po.supplierId),
+            status: po.status,
+            total_value: po.totalValue || 0,
+            items: po.items,
+            created_at: po.createdAt
+          }));
+          await client.from('purchase_orders').upsert(payload);
+        }
+      } catch (err) {
+        console.warn('Falha na sincronização assíncrona com Supabase:', err);
+      }
+    }, 1200);
+
+    return () => clearTimeout(timer);
   }, [state]);
 
   const login = (email: string, password?: string) => {
@@ -930,6 +1250,8 @@ export function useRamox() {
       createdAt: new Date().toISOString()
     };
 
+    unmarkAsDeleted(newOrder.id, toValidUUID(newOrder.id));
+
     let updatedProducts = state.products;
     if (status !== 'rejected') {
       // Deduct/reserve quantity immediately from available stock
@@ -989,6 +1311,11 @@ export function useRamox() {
 
   const updateBranchOrderStatus = (id: string, status: BranchOrder['status'], approvedBy?: string) => {
     const targetUUID = toValidUUID(id);
+    if (status !== 'rejected') {
+      unmarkAsDeleted(id, targetUUID);
+    } else {
+      markAsCancelled(id, targetUUID);
+    }
 
     let updatedProductsList: Product[] | null = null;
     let affectedOrder: BranchOrder | null = null;
@@ -1003,6 +1330,13 @@ export function useRamox() {
 
       affectedOrder = targetOrder;
       const oldStatus = targetOrder.status;
+
+      if (status === 'rejected') {
+        const distId = extractDistIdFromOrder(targetOrder);
+        if (distId) {
+          markDistBranchCancelled(distId, targetOrder.branchId);
+        }
+      }
 
       const updateData: Partial<BranchOrder> = { status };
       if (status === 'approved' && approvedBy) {
@@ -1060,10 +1394,10 @@ export function useRamox() {
             updatePayload.approved_by = approvedBy;
             updatePayload.approved_at = new Date().toISOString();
           }
-          const { error } = await client.from('branch_orders').update(updatePayload).eq('id', targetUUID);
-          if (error) {
-            await client.from('branch_orders').update(updatePayload).eq('id', id);
-          }
+          await Promise.allSettled([
+            client.from('branch_orders').update(updatePayload).eq('id', targetUUID),
+            client.from('branch_orders').update(updatePayload).eq('id', id)
+          ]);
 
           if (affectedOrder && updatedProductsList) {
             for (const item of (affectedOrder as BranchOrder).items) {
@@ -1080,10 +1414,90 @@ export function useRamox() {
     }
   };
 
+  const batchUpdateBranchOrderStatus = (ids: string[], status: BranchOrder['status'], approvedBy?: string) => {
+    if (!ids || ids.length === 0) return;
+    if (status !== 'rejected') {
+      ids.forEach(id => unmarkAsDeleted(id, toValidUUID(id)));
+    } else {
+      ids.forEach(id => markAsCancelled(id, toValidUUID(id)));
+    }
+    const targetUUIDs = new Set(ids.map(id => toValidUUID(id)));
+    const idSet = new Set(ids.map(id => id.toLowerCase().trim()));
+
+    setState(prev => {
+      let updatedProducts = prev.products;
+      const nowIso = new Date().toISOString();
+
+      const updatedOrders = prev.branchOrders.map(o => {
+        const match = idSet.has(o.id.toLowerCase().trim()) || targetUUIDs.has(toValidUUID(o.id));
+        if (!match) return o;
+
+        const oldStatus = o.status;
+        const updateData: Partial<BranchOrder> = { status };
+        if (status === 'approved' && approvedBy) {
+          updateData.approvedBy = approvedBy;
+          updateData.approvedAt = nowIso;
+        }
+
+        // Adjust reserved stock if rejecting or reactivating
+        if (status === 'rejected') {
+          const distId = extractDistIdFromOrder(o);
+          if (distId) {
+            markDistBranchCancelled(distId, o.branchId);
+          }
+          if (oldStatus !== 'rejected') {
+            updatedProducts = updatedProducts.map(p => {
+              const item = o.items.find(i => i.productId === p.id);
+              return item ? { ...p, currentStock: p.currentStock + item.quantity } : p;
+            });
+          }
+        } else if ((oldStatus as string) === 'rejected' && (status as string) !== 'rejected') {
+          updatedProducts = updatedProducts.map(p => {
+            const item = o.items.find(i => i.productId === p.id);
+            return item ? { ...p, currentStock: Math.max(0, p.currentStock - item.quantity) } : p;
+          });
+        }
+
+        return { ...o, ...updateData };
+      });
+
+      const newState = {
+        ...prev,
+        products: updatedProducts,
+        branchOrders: updatedOrders
+      };
+      mockDb.save(newState);
+      return newState;
+    });
+
+    const client = getSupabase();
+    if (client) {
+      (async () => {
+        try {
+          const updatePayload: any = { status };
+          if (status === 'approved' && approvedBy) {
+            updatePayload.approved_by = approvedBy;
+            updatePayload.approved_at = new Date().toISOString();
+          }
+          for (const id of ids) {
+            const uId = toValidUUID(id);
+            await Promise.allSettled([
+              client.from('branch_orders').update(updatePayload).eq('id', uId),
+              client.from('branch_orders').update(updatePayload).eq('id', id)
+            ]);
+          }
+        } catch (e) {
+          console.warn('Supabase batch update branch orders err:', e);
+        }
+      })();
+    }
+  };
+
   const deleteBranchOrder = (id: string) => {
     markAsDeleted(id);
     const targetId = toValidUUID(id);
     markAsDeleted(targetId);
+    markAsCancelled(id, targetId);
 
     let updatedProductsList: Product[] | null = null;
     let deletedOrder: BranchOrder | null = null;
@@ -1092,6 +1506,13 @@ export function useRamox() {
       const targetOrder = prev.branchOrders.find(o => o.id === id || toValidUUID(o.id) === targetId);
       deletedOrder = targetOrder || null;
       let updatedProducts = prev.products;
+
+      if (targetOrder) {
+        const distId = extractDistIdFromOrder(targetOrder);
+        if (distId) {
+          markDistBranchCancelled(distId, targetOrder.branchId);
+        }
+      }
 
       if (targetOrder && targetOrder.status !== 'rejected') {
         // Return reserved stock
@@ -1124,10 +1545,10 @@ export function useRamox() {
               }
             }
           }
-          const { error } = await client.from('branch_orders').delete().eq('id', targetId);
-          if (error) {
-            await client.from('branch_orders').delete().eq('id', id);
-          }
+          await Promise.allSettled([
+            client.from('branch_orders').delete().eq('id', targetId),
+            client.from('branch_orders').delete().eq('id', id)
+          ]);
         } catch (e) {
           console.warn('Supabase delete branch order err:', e);
         }
@@ -1570,54 +1991,170 @@ export function useRamox() {
       createdAt: new Date().toISOString()
     };
 
+    let newlyCreatedBranchOrders: BranchOrder[] = [];
+    let updatedProductsList: Product[] = [];
+
     setState(prev => {
+      // Helper to resolve canonical branch from any representation
+      const getCanonicalBranch = (bId: string): Branch | undefined => {
+        if (!bId) return undefined;
+        const clean = bId.toString().trim().toLowerCase();
+        return prev.branches.find(b => 
+          b.id.toLowerCase() === clean || 
+          toValidUUID(b.id) === toValidUUID(bId) ||
+          b.name.toLowerCase() === clean ||
+          (b.code && b.code.toLowerCase() === clean)
+        );
+      };
+
       // Deduct from warehouse stock
       const updatedProducts = prev.products.map(p => {
-        const distItem = items.find(i => i.productId === p.id);
+        const distItem = items.find(i => 
+          i.productId === p.id || 
+          toValidUUID(i.productId) === toValidUUID(p.id) ||
+          (p.code && p.code.toLowerCase() === i.productId.toLowerCase())
+        );
         if (distItem) {
-          const totalDistQuantity = distItem.quantityPerBranch.reduce((acc, q) => acc + q.quantity, 0);
+          const totalDistQuantity = distItem.quantityPerBranch.reduce((acc, q) => acc + (Number(q.quantity) || 0), 0);
           return { ...p, currentStock: Math.max(0, p.currentStock - totalDistQuantity) };
         }
         return p;
       });
+      updatedProductsList = updatedProducts;
 
-      // Create branch orders for each branch involved
-      const branchOrders: BranchOrder[] = [];
-      const branchIds = new Set<string>();
+      // Group all participating branches by their canonical ID so each branch receives ONE complete order
+      const canonicalBranchMap = new Map<string, Branch>();
       items.forEach(item => {
-        item.quantityPerBranch.forEach(q => branchIds.add(q.branchId));
+        (item.quantityPerBranch || []).forEach(q => {
+          if (q && Number(q.quantity) > 0) {
+            const branch = getCanonicalBranch(q.branchId);
+            const canonicalId = branch ? branch.id : q.branchId;
+            const branchObj = branch || {
+              id: canonicalId,
+              name: `Filial #${canonicalId}`,
+              location: 'Unidade da Rede',
+              manager: ''
+            };
+            canonicalBranchMap.set(canonicalId, branchObj);
+          }
+        });
       });
 
-      branchIds.forEach(branchId => {
-        const branchItems = items.map(item => ({
-          productId: item.productId,
-          quantity: item.quantityPerBranch.find(q => q.branchId === branchId)?.quantity || 0
-        })).filter(i => i.quantity > 0);
+      const branchOrders: BranchOrder[] = [];
+      const nowIso = new Date().toISOString();
+
+      canonicalBranchMap.forEach((branch, canonicalBranchId) => {
+        // Collect all items destined for this branch, grouping by resolved product ID
+        const itemMapByProduct = new Map<string, number>();
+
+        items.forEach(item => {
+          if (!item) return;
+          // Find allocation for this branch by ID, UUID, code or name
+          const qEntries = (item.quantityPerBranch || []).filter(q => {
+            if (!q) return false;
+            const b = getCanonicalBranch(q.branchId);
+            const qBId = (q.branchId || '').toString().trim().toLowerCase();
+            const targetBId = canonicalBranchId.toString().trim().toLowerCase();
+            return (b && b.id.toLowerCase() === targetBId) || 
+                   qBId === targetBId ||
+                   toValidUUID(q.branchId) === toValidUUID(canonicalBranchId) ||
+                   (branch.code && qBId === branch.code.toLowerCase().trim()) ||
+                   (branch.name && qBId === branch.name.toLowerCase().trim());
+          });
+
+          const totalAllocQty = qEntries.reduce((sum, q) => sum + (Number(q.quantity) || 0), 0);
+
+          if (totalAllocQty > 0) {
+            const prod = findProductHelper(prev.products, item.productId);
+            const resolvedProductId = prod ? prod.id : item.productId;
+            const cur = itemMapByProduct.get(resolvedProductId) || 0;
+            itemMapByProduct.set(resolvedProductId, cur + totalAllocQty);
+          }
+        });
+
+        const branchItems: { productId: string; quantity: number }[] = [];
+        itemMapByProduct.forEach((quantity, productId) => {
+          branchItems.push({ productId, quantity });
+        });
 
         if (branchItems.length > 0) {
           const totalValue = branchItems.reduce((acc, item) => {
-            const product = state.products.find(p => p.id === item.productId);
+            const product = findProductHelper(prev.products, item.productId);
             return acc + (product ? product.price * item.quantity : 0);
           }, 0);
 
+          const newOrderId = Math.random().toString(36).substr(2, 9);
+          unmarkAsDeleted(newOrderId, toValidUUID(newOrderId));
+
+          const recipient = recipients?.[canonicalBranchId] || 
+                            recipients?.[toValidUUID(canonicalBranchId)] || 
+                            branch.manager || 
+                            undefined;
+
           branchOrders.push({
-            id: Math.random().toString(36).substr(2, 9),
-            branchId,
+            id: newOrderId,
+            branchId: canonicalBranchId,
             items: branchItems,
             status: 'approved', // Distributions start as approved for logistics to pick
             totalValue,
-            createdAt: new Date().toISOString()
+            createdAt: nowIso,
+            approvedBy: type === 'epi' ? 'Distribuição de EPIs' : 'Distribuição Central (Em Lote)',
+            approvedAt: nowIso,
+            notes: type === 'epi'
+              ? `Distribuição de EPIs (Lote #${newDistribution.id.toUpperCase()})`
+              : `Distribuição em Massa (Lote #${newDistribution.id.toUpperCase()})`,
+            recipientName: recipient,
+            orderType: type === 'epi' ? 'epi' : 'distribution'
           });
         }
       });
 
-      return {
+      newlyCreatedBranchOrders = branchOrders;
+
+      const newState = {
         ...prev,
         products: updatedProducts,
         branchOrders: [...prev.branchOrders, ...branchOrders],
         distributions: [...prev.distributions, newDistribution]
       };
+
+      const reconciled = reconcileDistributionOrders(newState);
+      mockDb.save(reconciled);
+      return reconciled;
     });
+
+    // Sync newly created orders and stock to Supabase
+    const client = getSupabase();
+    if (client && newlyCreatedBranchOrders.length > 0) {
+      (async () => {
+        try {
+          for (const bo of newlyCreatedBranchOrders) {
+            const orderPayload = {
+              id: toValidUUID(bo.id),
+              branch_id: toValidUUID(bo.branchId),
+              items: bo.items,
+              status: bo.status,
+              total_value: bo.totalValue,
+              created_at: bo.createdAt,
+              approved_by: bo.approvedBy,
+              approved_at: bo.approvedAt
+            };
+            await client.from('branch_orders').upsert(orderPayload);
+          }
+
+          if (updatedProductsList && updatedProductsList.length > 0) {
+            for (const item of items) {
+              const prod = findProductHelper(updatedProductsList, item.productId);
+              if (prod) {
+                await client.from('products').update({ current_stock: prod.currentStock }).eq('id', toValidUUID(prod.id));
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('Supabase createDistribution sync err:', e);
+        }
+      })();
+    }
   };
 
   const updateBranchOrderItems = (id: string, items: { productId: string, quantity: number }[]) => {
@@ -1803,6 +2340,7 @@ export function useRamox() {
     updatePurchaseOrderStatus,
     createBranchOrder,
     updateBranchOrderStatus,
+    batchUpdateBranchOrderStatus,
     updateBranchOrderItems,
     deleteBranchOrder,
     addUser,

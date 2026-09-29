@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { BranchOrder, Branch, Product, Supplier } from '../types';
+import { findProductHelper } from '../services/ramoxContext';
 
 /**
  * Brand colors for Lojas Ramos / RAMOS MÓVEIS E ELETRODOMÉSTICOS
@@ -377,9 +378,9 @@ export function generateRomaneioPDF(
   let totalQuantity = 0;
 
   order.items.forEach((item, index) => {
-    const product = products.find(p => p.id === item.productId);
-    const code = product?.code || 'N/A';
-    const name = product?.name || 'Produto Não Encontrado';
+    const product = findProductHelper(products, item.productId);
+    const code = product?.code || item.productId || 'N/A';
+    const name = product?.name || `Produto #${item.productId}`;
     const category = product?.category || 'Geral';
     const unit = product?.unit || 'un';
     totalQuantity += item.quantity;
@@ -621,14 +622,14 @@ export function generatePurchaseOrderPDF(
   // Table Data
   let grandTotal = 0;
   const tableData = order.items.map((item: any) => {
-    const product = products.find(p => p.id === item.productId);
+    const product = findProductHelper(products, item.productId);
     const unitPrice = product?.price || 0;
     const itemTotal = item.quantity * unitPrice;
     grandTotal += itemTotal;
 
     return [
-      product?.code || 'N/A',
-      product?.name || 'Produto Não Encontrado',
+      product?.code || item.productId || 'N/A',
+      product?.name || `Produto #${item.productId}`,
       product?.category || 'Geral',
       `${item.quantity} ${product?.unit || 'un'}`,
       `R$ ${unitPrice.toFixed(2)}`,
@@ -854,20 +855,19 @@ export function generateBranchOrderPDF(
 
   const tableData: any[][] = [];
   orderItems.forEach((item) => {
-    const product = products.find((p) => p.id === item.productId);
-    if (!product) return;
-
-    const subtotal = product.price * item.quantity;
+    const product = findProductHelper(products, item.productId);
+    const price = product?.price || 0;
+    const subtotal = price * item.quantity;
     runningTotal += subtotal;
     totalQty += item.quantity;
 
     tableData.push([
-      product.code,
-      product.name,
-      product.category || 'Geral',
-      product.unit,
+      product?.code || item.productId || 'N/A',
+      product?.name || `Produto #${item.productId}`,
+      product?.category || 'Geral',
+      product?.unit || 'un',
       item.quantity,
-      `R$ ${product.price.toFixed(2)}`,
+      `R$ ${price.toFixed(2)}`,
       `R$ ${subtotal.toFixed(2)}`
     ]);
   });
@@ -2139,9 +2139,9 @@ export function generateManualPickingPDF(
   let seq = 1;
 
   itemMap.forEach((qty, productId) => {
-    const product = products.find(p => p.id === productId);
-    const code = product?.code || 'N/A';
-    const name = product?.name || 'Produto Não Encontrado';
+    const product = findProductHelper(products, productId);
+    const code = product?.code || productId || 'N/A';
+    const name = product?.name || `Produto #${productId}`;
     const category = product?.category || 'Geral';
     const unit = product?.unit || 'un';
 

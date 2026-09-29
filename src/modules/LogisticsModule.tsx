@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useRamoxContext } from '../services/RamoxContextComponent';
+import { toValidUUID, findProductHelper } from '../services/ramoxContext';
 import ExportExcelModal from '../components/ExportExcelModal';
 import Pagination from '../components/Pagination';
 import { generateRomaneioPDF, generateBoxLabelPDF, generateManualPickingPDF } from '../utils/pdfGenerator';
@@ -9,6 +10,7 @@ import {
   DialogContent, 
   DialogHeader, 
   DialogTitle, 
+  DialogDescription,
   DialogTrigger,
   DialogFooter
 } from '@/components/ui/dialog';
@@ -31,7 +33,11 @@ import {
   LayoutGrid,
   XCircle,
   X,
-  RotateCcw
+  RotateCcw,
+  Calendar,
+  Filter,
+  Ban,
+  AlertTriangle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -54,8 +60,10 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
     branchOrders, 
     products, 
     updateBranchOrderStatus, 
+    batchUpdateBranchOrderStatus,
     branches, 
     globalSearch, 
+    setGlobalSearch,
     inventoryCounts, 
     completeInventoryCount,
     purchaseOrders,
@@ -63,7 +71,8 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
     updatePurchaseOrderStatus,
     settings
   } = useRamoxContext();
-  const [activeTab, setActiveTab] = useState(initialTab || 'pending');
+  const normalizedInitialTab = !initialTab || initialTab === 'pending' || initialTab === 'picking' ? 'picking_cities' : initialTab;
+  const [activeTab, setActiveTab] = useState(normalizedInitialTab);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPickingOrder, setSelectedPickingOrder] = useState<any>(null);
   const [pickedQuantities, setPickedQuantities] = useState<Record<string, string>>({});
@@ -75,9 +84,21 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
   const [labelCount, setLabelCount] = useState<number>(1);
   const [readyViewMode, setReadyViewMode] = useState<'list' | 'grid'>('list');
   const [selectedPickingOrderIds, setSelectedPickingOrderIds] = useState<string[]>([]);
+  
+  // Filtros avançados para o Painel de Separação (Picking)
+  const [pickingStatusFilter, setPickingStatusFilter] = useState<'active' | 'approved' | 'picking' | 'picked' | 'pending' | 'rejected' | 'all'>('active');
+  const [pickingStartDateFilter, setPickingStartDateFilter] = useState('');
+  const [pickingEndDateFilter, setPickingEndDateFilter] = useState('');
+  const [pickingDatePreset, setPickingDatePreset] = useState<'all' | 'today' | 'yesterday' | '7days' | '30days' | 'thisMonth' | 'custom'>('all');
+  const [pickingBranchFilter, setPickingBranchFilter] = useState<string>('all');
+
+  // Modais de cancelamento direto de separação (sem devolver para aprovação)
+  const [cancelDirectOrderPrompt, setCancelDirectOrderPrompt] = useState<any>(null);
+  const [cancelDirectBatchPromptOpen, setCancelDirectBatchPromptOpen] = useState(false);
+  const [directCancelReason, setDirectCancelReason] = useState('');
 
   const handlePrintRomaneioPDF = (order: any) => {
-    const branch = branches.find(b => b.id === order.branchId);
+    const branch = findBranch(order.branchId);
     generateRomaneioPDF(
       order,
       branch,
@@ -89,7 +110,7 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
   };
 
   const handleGenerateBoxLabels = (order: any, count: number) => {
-    const branch = branches.find(b => b.id === order.branchId);
+    const branch = findBranch(order.branchId);
     generateBoxLabelPDF(
       order,
       branch,
@@ -101,7 +122,7 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
   };
 
   const handleManualPickingPDF = (order: any, openModal: boolean = true) => {
-    const branch = branches.find(b => b.id === order.branchId);
+    const branch = findBranch(order.branchId);
     generateManualPickingPDF(
       order,
       branch,
@@ -136,7 +157,8 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
   // Sync state if initialTab changes from parent
   useEffect(() => {
     if (initialTab) {
-      setActiveTab(initialTab);
+      const norm = initialTab === 'pending' || initialTab === 'picking' ? 'picking_cities' : initialTab;
+      setActiveTab(norm);
     }
   }, [initialTab]);
 
@@ -164,7 +186,48 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
     };
   }, [selectedPurchaseOrder]);
 
-  const effectiveSearch = searchTerm || globalSearch;
+  const effectiveSearch = (searchTerm || globalSearch || '').trim();
+
+  const findProduct = (productIdOrCode?: string) => {
+    const match = findProductHelper(products, productIdOrCode);
+    if (match) return match;
+    return {
+      id: productIdOrCode || 'unknown',
+      name: productIdOrCode ? `Produto #${productIdOrCode}` : 'Produto Não Identificado',
+      code: productIdOrCode || 'N/A',
+      unit: 'un',
+      category: 'Geral',
+      price: 0,
+      currentStock: 0,
+      minStock: 0,
+      image: ''
+    };
+  };
+
+  const findBranch = (branchId?: string) => {
+    if (!branchId) {
+      return {
+        id: 'unknown',
+        name: 'Filial Matriz / Central',
+        location: 'Central de Distribuição',
+        manager: 'Gerente Operacional'
+      };
+    }
+    const clean = branchId.trim().toLowerCase();
+    const match = branches.find(b => 
+      b.id.toLowerCase() === clean || 
+      toValidUUID(b.id) === toValidUUID(branchId) ||
+      b.name.toLowerCase() === clean ||
+      (b.code && b.code.toLowerCase() === clean)
+    );
+    if (match) return match;
+    return {
+      id: branchId,
+      name: `Filial #${branchId}`,
+      location: 'Unidade da Rede',
+      manager: 'Gerente da Filial'
+    };
+  };
 
   const getTitle = () => {
     switch (activeTab) {
@@ -191,16 +254,136 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
   };
 
   const filteredOrders = branchOrders.filter(order => {
-    const branch = branches.find(b => b.id === order.branchId);
-    const search = effectiveSearch.toLowerCase();
-    return order.id.toLowerCase().includes(search) || 
-           branch?.name.toLowerCase().includes(search) ||
-           branch?.location.toLowerCase().includes(search);
+    const branch = findBranch(order.branchId);
+    if (!effectiveSearch) return true;
+    const q = effectiveSearch.toLowerCase();
+
+    const idMatch = (order.id || '').toLowerCase().includes(q);
+    const branchNameMatch = branch?.name ? branch.name.toLowerCase().includes(q) : false;
+    const branchLocMatch = branch?.location ? branch.location.toLowerCase().includes(q) : false;
+    const branchCodeMatch = branch?.code ? branch.code.toLowerCase().includes(q) : false;
+    const notesMatch = (order.notes || '').toLowerCase().includes(q);
+    const itemsMatch = (order.items || []).some(item => {
+      const p = findProduct(item.productId);
+      return (p?.name && p.name.toLowerCase().includes(q)) || (p?.code && p.code.toLowerCase().includes(q));
+    });
+
+    return idMatch || branchNameMatch || branchLocMatch || branchCodeMatch || notesMatch || itemsMatch;
   });
 
-  const pickingCitiesOrders = filteredOrders.filter(o => o.status === 'approved' || o.status === 'picking');
-  const loadingOrders = filteredOrders.filter(o => o.status === 'picked' || o.status === 'invoiced' || o.status === 'loading');
-  const finishedOrders = filteredOrders.filter(o => o.status === 'shipped' || o.status === 'delivered');
+  // Atalhos de período para o Painel de Separação
+  const applyPickingDatePreset = (preset: string) => {
+    setPickingDatePreset(preset as any);
+    const now = new Date();
+    const formatIsoDate = (d: Date) => {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
+    if (preset === 'all') {
+      setPickingStartDateFilter('');
+      setPickingEndDateFilter('');
+    } else if (preset === 'today') {
+      const todayStr = formatIsoDate(now);
+      setPickingStartDateFilter(todayStr);
+      setPickingEndDateFilter(todayStr);
+    } else if (preset === 'yesterday') {
+      const yest = new Date(now);
+      yest.setDate(yest.getDate() - 1);
+      const yestStr = formatIsoDate(yest);
+      setPickingStartDateFilter(yestStr);
+      setPickingEndDateFilter(yestStr);
+    } else if (preset === '7days') {
+      const start = new Date(now);
+      start.setDate(start.getDate() - 7);
+      setPickingStartDateFilter(formatIsoDate(start));
+      setPickingEndDateFilter(formatIsoDate(now));
+    } else if (preset === '30days') {
+      const start = new Date(now);
+      start.setDate(start.getDate() - 30);
+      setPickingStartDateFilter(formatIsoDate(start));
+      setPickingEndDateFilter(formatIsoDate(now));
+    } else if (preset === 'thisMonth') {
+      const start = new Date(now.getFullYear(), now.getMonth(), 1);
+      setPickingStartDateFilter(formatIsoDate(start));
+      setPickingEndDateFilter(formatIsoDate(now));
+    }
+  };
+
+  const handleClearPickingFilters = () => {
+    setPickingStatusFilter('active');
+    setPickingStartDateFilter('');
+    setPickingEndDateFilter('');
+    setPickingDatePreset('all');
+    setPickingBranchFilter('all');
+    setSearchTerm('');
+    if (setGlobalSearch) setGlobalSearch('');
+    setCurrentPickingPage(1);
+    setSelectedPickingOrderIds([]);
+  };
+
+  // Total de pedidos ativos na fila de separação (Aprovados + Em Separação)
+  const totalActivePickingCount = filteredOrders.filter(o => {
+    const s = (o.status || '').toLowerCase().trim();
+    return s === 'approved' || s === 'picking';
+  }).length;
+
+  const pickingCitiesOrders = filteredOrders
+    .filter(o => {
+      const s = (o.status || '').toLowerCase().trim();
+
+      // 1. Filtro de Status
+      if (pickingStatusFilter === 'active') {
+        if (s !== 'approved' && s !== 'picking') return false;
+      } else if (pickingStatusFilter === 'approved') {
+        if (s !== 'approved') return false;
+      } else if (pickingStatusFilter === 'picking') {
+        if (s !== 'picking') return false;
+      } else if (pickingStatusFilter === 'picked') {
+        if (s !== 'picked') return false;
+      } else if (pickingStatusFilter === 'pending') {
+        if (s !== 'pending') return false;
+      } else if (pickingStatusFilter === 'rejected') {
+        if (s !== 'rejected') return false;
+      }
+      // 'all' inclui qualquer status
+
+      // 2. Filtro de Filial
+      if (pickingBranchFilter !== 'all') {
+        const match = o.branchId === pickingBranchFilter || 
+                      toValidUUID(o.branchId) === toValidUUID(pickingBranchFilter);
+        if (!match) return false;
+      }
+
+      // 3. Filtro de Período (Data Inicial e Final)
+      if (pickingStartDateFilter || pickingEndDateFilter) {
+        if (!o.createdAt) return false;
+        const orderDate = new Date(o.createdAt);
+        if (isNaN(orderDate.getTime())) return false;
+
+        if (pickingStartDateFilter) {
+          const start = new Date(pickingStartDateFilter + 'T00:00:00');
+          if (orderDate < start) return false;
+        }
+        if (pickingEndDateFilter) {
+          const end = new Date(pickingEndDateFilter + 'T23:59:59.999');
+          if (orderDate > end) return false;
+        }
+      }
+
+      return true;
+    })
+    .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+  const loadingOrders = filteredOrders.filter(o => {
+    const s = (o.status || '').toLowerCase().trim();
+    return s === 'picked' || s === 'invoiced' || s === 'loading';
+  });
+  const finishedOrders = filteredOrders.filter(o => {
+    const s = (o.status || '').toLowerCase().trim();
+    return s === 'shipped' || s === 'delivered';
+  });
   
   const pendingCounts = inventoryCounts.filter(c => c.status === 'pending');
   const incomingPurchases = purchaseOrders.filter(o => o.status === 'approved' || o.status === 'pending' || o.status === 'checked');
@@ -215,7 +398,8 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
     setCurrentReadyPage(1);
     setCurrentIncomingPage(1);
     setCurrentCountsPage(1);
-  }, [searchTerm, globalSearch, activeTab]);
+    setSelectedPickingOrderIds([]);
+  }, [searchTerm, globalSearch, activeTab, pickingStatusFilter, pickingStartDateFilter, pickingEndDateFilter, pickingBranchFilter]);
 
   const paginatedPickingOrders = pickingCitiesOrders.slice((currentPickingPage - 1) * 15, currentPickingPage * 15);
   const paginatedFinishedOrders = finishedOrders.slice((currentReadyPage - 1) * 15, currentReadyPage * 15);
@@ -247,7 +431,7 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
       toast.info(`Pedido #${order.id.toUpperCase()} devolvido para a fila de aprovação administrativa.`);
     } else {
       updateBranchOrderStatus(order.id, 'approved');
-      toast.info(`Separação do Pedido #${order.id.toUpperCase()} cancelada/resetada. O pedido retornou ao status Aprovado.`);
+      toast.info(`Separação do Pedido #${order.id.toUpperCase()} cancelada/resetada. O pedido retornou para Aguardando Início (Aprovado).`);
     }
   };
 
@@ -255,23 +439,43 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
     if (selectedPickingOrderIds.length === 0) return;
     const count = selectedPickingOrderIds.length;
     const targetStatus = returnToPending ? 'pending' : 'approved';
-    selectedPickingOrderIds.forEach(id => {
-      updateBranchOrderStatus(id, targetStatus);
-    });
+    batchUpdateBranchOrderStatus(selectedPickingOrderIds, targetStatus);
     if (returnToPending) {
       toast.info(`${count} pedido(s) devolvido(s) para a fila de aprovação.`);
     } else {
-      toast.info(`${count} separação(ões) cancelada(s)/resetada(s). Os pedidos retornaram ao status Aprovado.`);
+      toast.info(`${count} separação(ões) cancelada(s)/resetada(s). Pedidos retornaram para Aguardando Início (Aprovado).`);
     }
     setSelectedPickingOrderIds([]);
+  };
+
+  // Cancelar diretamente a separação de um pedido sem devolver para aprovação
+  const handleConfirmDirectCancel = () => {
+    if (!cancelDirectOrderPrompt) return;
+    const orderId = cancelDirectOrderPrompt.id;
+    updateBranchOrderStatus(orderId, 'rejected');
+    toast.success(`Separação do Pedido #${orderId.toUpperCase()} cancelada diretamente com sucesso! Itens liberados no estoque central.`);
+    setCancelDirectOrderPrompt(null);
+    setDirectCancelReason('');
+    if (selectedPickingOrder?.id === orderId) {
+      setSelectedPickingOrder(null);
+      setPickedQuantities({});
+    }
+  };
+
+  // Cancelar diretamente em lote as separações selecionadas sem devolver para aprovação
+  const handleConfirmBatchDirectCancel = () => {
+    if (selectedPickingOrderIds.length === 0) return;
+    const count = selectedPickingOrderIds.length;
+    batchUpdateBranchOrderStatus(selectedPickingOrderIds, 'rejected');
+    toast.success(`${count} separação(ões) cancelada(s) diretamente com sucesso! Itens estornados ao estoque sem devolução para aprovação.`);
+    setSelectedPickingOrderIds([]);
+    setCancelDirectBatchPromptOpen(false);
   };
 
   const handleBatchConfirmPicking = () => {
     if (selectedPickingOrderIds.length === 0) return;
     const count = selectedPickingOrderIds.length;
-    selectedPickingOrderIds.forEach(id => {
-      updateBranchOrderStatus(id, 'picked');
-    });
+    batchUpdateBranchOrderStatus(selectedPickingOrderIds, 'picked');
     toast.success(`${count} separação(ões) confirmada(s) com sucesso!`);
     setSelectedPickingOrderIds([]);
   };
@@ -281,7 +485,7 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
     const selectedOrders = branchOrders.filter(o => selectedPickingOrderIds.includes(o.id));
     if (selectedOrders.length === 0) return;
 
-    const firstBranch = branches.find(b => b.id === selectedOrders[0].branchId);
+    const firstBranch = findBranch(selectedOrders[0].branchId);
     generateManualPickingPDF(
       selectedOrders,
       firstBranch,
@@ -294,8 +498,8 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
 
   // Group approved orders by city
   const ordersByCity = pickingCitiesOrders.reduce((acc, order) => {
-    const branch = branches.find(b => b.id === order.branchId);
-    const city = branch?.location || 'Outros';
+    const branch = findBranch(order.branchId);
+    const city = (branch?.location || branch?.name || 'Central / Sem Cidade').trim();
     if (!acc[city]) acc[city] = [];
     acc[city].push(order);
     return acc;
@@ -303,33 +507,41 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
 
   // Group loading orders by city
   const loadingOrdersByCity = loadingOrders.reduce((acc, order) => {
-    const branch = branches.find(b => b.id === order.branchId);
-    const city = branch?.location || 'Outros';
+    const branch = findBranch(order.branchId);
+    const city = (branch?.location || branch?.name || 'Central / Sem Cidade').trim();
     if (!acc[city]) acc[city] = [];
     acc[city].push(order);
     return acc;
   }, {} as Record<string, typeof branchOrders>);
 
+  const handleStartLoadingForCity = (city: string, orders: any[]) => {
+    const toLoad = orders.filter(o => o.status === 'picked' || o.status === 'invoiced');
+    if (toLoad.length === 0) {
+      toast.info(`Todos os pedidos da cidade ${city} já estão em carregamento ou foram despachados.`);
+      return;
+    }
+    const ids = toLoad.map(o => o.id);
+    batchUpdateBranchOrderStatus(ids, 'loading');
+    toast.success(`Carregamento iniciado para ${ids.length} pedido(s) da praça ${city}!`);
+  };
+
+  const handleDispatchCityOrders = (city: string, orders: any[]) => {
+    const toShip = orders.filter(o => o.status === 'loading' || o.status === 'picked' || o.status === 'invoiced');
+    if (toShip.length === 0) {
+      toast.info(`Nenhum pedido pendente de despacho para ${city}.`);
+      return;
+    }
+    const ids = toShip.map(o => o.id);
+    batchUpdateBranchOrderStatus(ids, 'shipped');
+    toast.success(`Carga despachada com sucesso para a praça ${city} (${ids.length} pedido(s) em trânsito)!`);
+  };
+
   const handleCityLoadingAction = (city: string, orders: any[]) => {
     const toLoad = orders.filter(o => o.status === 'picked' || o.status === 'invoiced');
     if (toLoad.length > 0) {
-      toLoad.forEach(o => {
-        updateBranchOrderStatus(o.id, 'loading');
-      });
-      toast.info(`Carregamento iniciado para ${toLoad.length} pedido(s) da cidade ${city}!`);
+      handleStartLoadingForCity(city, orders);
     } else {
-      const toShip = orders.filter(o => o.status === 'loading');
-      if (toShip.length > 0) {
-        toShip.forEach(o => {
-          updateBranchOrderStatus(o.id, 'shipped');
-        });
-        toast.success(`Carga despachada com sucesso para a cidade ${city} (${toShip.length} pedidos em trânsito)!`);
-      } else {
-        orders.forEach(o => {
-          updateBranchOrderStatus(o.id, 'shipped');
-        });
-        toast.success(`Carga despachada com sucesso para a cidade ${city}!`);
-      }
+      handleDispatchCityOrders(city, orders);
     }
   };
 
@@ -340,30 +552,53 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
           <h2 className="text-3xl font-bold text-white tracking-tight">{getTitle()}</h2>
           <p className="text-slate-400 font-medium tracking-wide">{getDescription()}</p>
         </div>
-        <div className="relative w-full md:w-96 group">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-cyan-400 transition-colors" size={20} />
-          <Input 
-            placeholder="Buscar por Pedido, Cidade ou Filial..." 
-            className="pl-12 h-12 bg-slate-900/50 border-slate-800 rounded-lg focus:border-cyan-500/50 text-slate-200 placeholder:text-slate-600 transition-all shadow-inner"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
+        <div className="relative w-full md:w-96 group flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-cyan-400 transition-colors" size={20} />
+            <Input 
+              placeholder="Buscar por Pedido, Cidade, Filial ou Item..." 
+              className="pl-12 pr-10 h-12 bg-slate-900/50 border-slate-800 rounded-lg focus:border-cyan-500/50 text-slate-200 placeholder:text-slate-600 transition-all shadow-inner"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+            {(searchTerm || effectiveSearch) && (
+              <button 
+                type="button"
+                onClick={() => {
+                  setSearchTerm('');
+                  if (setGlobalSearch) setGlobalSearch('');
+                }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white p-1"
+                title="Limpar busca"
+              >
+                <X size={16} />
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        {!initialTab && (
-          <TabsList className="bg-slate-900/50 border border-slate-800 p-1.5 rounded-lg mb-8 backdrop-blur-md h-auto flex flex-wrap gap-1">
-            <TabsTrigger value="routes" className="rounded-md px-5 py-2.5 data-[state=active]:bg-cyan-500 data-[state=active]:text-white transition-all font-bold flex items-center gap-2">
-              <span>Cadastro de Rotas</span>
-            </TabsTrigger>
-            <TabsTrigger value="picking_cities" className="rounded-md px-5 py-2.5 data-[state=active]:bg-amber-500 data-[state=active]:text-white transition-all font-bold">Separação ({Object.keys(ordersByCity).length} Cidades)</TabsTrigger>
-            <TabsTrigger value="loading" className="rounded-md px-5 py-2.5 data-[state=active]:bg-blue-500 data-[state=active]:text-white transition-all font-bold">Carregamento ({loadingOrders.length})</TabsTrigger>
-            <TabsTrigger value="ready" className="rounded-md px-5 py-2.5 data-[state=active]:bg-emerald-500 data-[state=active]:text-white transition-all font-bold">Enviados ({finishedOrders.length})</TabsTrigger>
-            <TabsTrigger value="incoming" className="rounded-md px-5 py-2.5 data-[state=active]:bg-slate-700 data-[state=active]:text-white transition-all font-bold">Recebimento ({incomingPurchases.length})</TabsTrigger>
-            <TabsTrigger value="counts" className="rounded-md px-5 py-2.5 data-[state=active]:bg-slate-800 data-[state=active]:text-white transition-all font-bold group border border-slate-800">Contagens ({pendingCounts.length})</TabsTrigger>
-          </TabsList>
-        )}
+        <TabsList className="bg-slate-900/50 border border-slate-800 p-1.5 rounded-lg mb-8 backdrop-blur-md h-auto flex flex-wrap gap-1">
+          <TabsTrigger value="routes" className="rounded-md px-5 py-2.5 data-[state=active]:bg-cyan-500 data-[state=active]:text-white transition-all font-bold flex items-center gap-2">
+            <span>Cadastro de Rotas</span>
+          </TabsTrigger>
+          <TabsTrigger value="picking_cities" className="rounded-md px-5 py-2.5 data-[state=active]:bg-amber-500 data-[state=active]:text-white transition-all font-bold">
+            Separação ({totalActivePickingCount} Ativos)
+          </TabsTrigger>
+          <TabsTrigger value="loading" className="rounded-md px-5 py-2.5 data-[state=active]:bg-blue-500 data-[state=active]:text-white transition-all font-bold">
+            Carregamento ({loadingOrders.length})
+          </TabsTrigger>
+          <TabsTrigger value="ready" className="rounded-md px-5 py-2.5 data-[state=active]:bg-emerald-500 data-[state=active]:text-white transition-all font-bold">
+            Enviados ({finishedOrders.length})
+          </TabsTrigger>
+          <TabsTrigger value="incoming" className="rounded-md px-5 py-2.5 data-[state=active]:bg-slate-700 data-[state=active]:text-white transition-all font-bold">
+            Recebimento ({incomingPurchases.length})
+          </TabsTrigger>
+          <TabsTrigger value="counts" className="rounded-md px-5 py-2.5 data-[state=active]:bg-slate-800 data-[state=active]:text-white transition-all font-bold group border border-slate-800">
+            Contagens ({pendingCounts.length})
+          </TabsTrigger>
+        </TabsList>
 
         <TabsContent value="routes">
           <RoutesModule />
@@ -371,42 +606,168 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
 
         <TabsContent value="picking_cities">
           <Card className="border-slate-800 bg-slate-900/50 shadow-2xl backdrop-blur-xl">
-            <CardHeader className="border-b border-slate-800/50 pb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div>
-                <CardTitle className="text-xl font-bold text-white flex items-center gap-3">
-                  <span>Lista de Separações Pendentes</span>
-                  <Badge className="bg-amber-500/10 text-amber-500 border border-amber-500/20 font-bold">{pickingCitiesOrders.length} Pendentes</Badge>
-                </CardTitle>
-                <p className="text-sm text-slate-400 font-medium">Selecione um pedido aprovado na fila para visualizar os produtos e iniciar a conferência física.</p>
+            <CardHeader className="border-b border-slate-800/50 pb-6 space-y-4">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <CardTitle className="text-xl font-bold text-white flex items-center gap-3">
+                    <span>Fila de Separações & Conferência</span>
+                    <Badge className="bg-amber-500/10 text-amber-500 border border-amber-500/20 font-bold">
+                      {totalActivePickingCount} Em Fila Ativa
+                    </Badge>
+                    {(pickingStatusFilter !== 'active' || pickingStartDateFilter || pickingEndDateFilter || pickingBranchFilter !== 'all' || effectiveSearch) && (
+                      <Badge className="bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-bold">
+                        {pickingCitiesOrders.length} Exibido(s)
+                      </Badge>
+                    )}
+                  </CardTitle>
+                  <p className="text-sm text-slate-400 font-medium mt-0.5">
+                    Gerencie pedidos em separação com filtros de status e período. Inicie conferências ou cancele separações diretamente sem retornar para a aprovação.
+                  </p>
+                </div>
+                <ExportExcelModal
+                  title="Exportar Lista de Separação (Picking)"
+                  description="Exporte os pedidos em fila de separação para impressão ou conferência offline."
+                  data={pickingCitiesOrders.map(o => {
+                    const branch = findBranch(o.branchId);
+                    const totalQty = o.items.reduce((sum, item) => sum + item.quantity, 0);
+                    return {
+                      IDPedido: o.id.toUpperCase(),
+                      FilialDestino: branch?.name || 'N/A',
+                      Cidade: branch?.location || 'N/A',
+                      TotalPecas: totalQty,
+                      VariedadeItens: o.items.length,
+                      DataAprovacao: o.createdAt ? new Date(o.createdAt).toLocaleDateString('pt-BR') : 'N/A',
+                      Status: o.status === 'picking' ? 'Em Separação' : o.status === 'approved' ? 'Aguardando Início' : o.status === 'picked' ? 'Separado' : o.status === 'rejected' ? 'Cancelado' : o.status
+                    };
+                  })}
+                  defaultFilename="fila_separacao_picking"
+                  sheetName="Picking"
+                  columns={[
+                    { key: 'IDPedido', label: 'ID Pedido' },
+                    { key: 'FilialDestino', label: 'Filial Destino' },
+                    { key: 'Cidade', label: 'Cidade' },
+                    { key: 'TotalPecas', label: 'Total Peças' },
+                    { key: 'VariedadeItens', label: 'Total Itens' },
+                    { key: 'DataAprovacao', label: 'Data Aprovação' },
+                    { key: 'Status', label: 'Status' },
+                  ]}
+                />
               </div>
-              <ExportExcelModal
-                title="Exportar Lista de Separação (Picking)"
-                description="Exporte os pedidos em fila de separação para impressão ou conferência offline."
-                data={pickingCitiesOrders.map(o => {
-                  const branch = branches.find(b => b.id === o.branchId);
-                  const totalQty = o.items.reduce((sum, item) => sum + item.quantity, 0);
-                  return {
-                    IDPedido: o.id.toUpperCase(),
-                    FilialDestino: branch?.name || 'N/A',
-                    Cidade: branch?.location || 'N/A',
-                    TotalPecas: totalQty,
-                    VariedadeItens: o.items.length,
-                    DataAprovacao: new Date(o.createdAt).toLocaleDateString('pt-BR'),
-                    Status: o.status === 'picking' ? 'Em Separação' : 'Aguardando Início'
-                  };
-                })}
-                defaultFilename="fila_separacao_picking"
-                sheetName="Picking"
-                columns={[
-                  { key: 'IDPedido', label: 'ID Pedido' },
-                  { key: 'FilialDestino', label: 'Filial Destino' },
-                  { key: 'Cidade', label: 'Cidade' },
-                  { key: 'TotalPecas', label: 'Total Peças' },
-                  { key: 'VariedadeItens', label: 'Total Itens' },
-                  { key: 'DataAprovacao', label: 'Data Aprovação' },
-                  { key: 'Status', label: 'Status' },
-                ]}
-              />
+
+              {/* BARRA DE FILTROS: STATUS, FILIAL E PERÍODO */}
+              <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-3.5 space-y-3 shadow-inner">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {/* Filtro de Status */}
+                  <div className="space-y-1.5">
+                    <Label className="text-[10px] text-amber-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
+                      <Filter size={11} /> Status da Separação
+                    </Label>
+                    <select
+                      value={pickingStatusFilter}
+                      onChange={(e) => setPickingStatusFilter(e.target.value as any)}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-md h-8.5 text-slate-200 text-xs px-2.5 focus:ring-1 focus:ring-amber-500 focus:border-amber-500 outline-none transition-all cursor-pointer font-medium"
+                    >
+                      <option value="active">Em Fila Ativa (Aprovados + Em Separação)</option>
+                      <option value="approved">Aguardando Início (Aprovados)</option>
+                      <option value="picking">Em Separação (Conferência em Andamento)</option>
+                      <option value="picked">Já Separados (Concluídos)</option>
+                      <option value="pending">Devolvidos p/ Aprovação (Pendente)</option>
+                      <option value="rejected">Cancelados / Rejeitados Diretamente</option>
+                      <option value="all">Ver Todos os Status</option>
+                    </select>
+                  </div>
+
+                  {/* Filtro de Filial */}
+                  <div className="space-y-1.5">
+                    <Label className="text-[10px] text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
+                      <Box size={11} /> Filial Destino
+                    </Label>
+                    <select
+                      value={pickingBranchFilter}
+                      onChange={(e) => setPickingBranchFilter(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-md h-8.5 text-slate-200 text-xs px-2.5 focus:ring-1 focus:ring-amber-500 focus:border-amber-500 outline-none transition-all cursor-pointer font-medium"
+                    >
+                      <option value="all">Todas as Filiais ({branches.length})</option>
+                      {branches.map(b => (
+                        <option key={b.id} value={b.id}>
+                          {b.code ? `[${b.code}] ` : ''}{b.name} - {b.location}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Filtro Data Inicial (De) */}
+                  <div className="space-y-1.5">
+                    <Label className="text-[10px] text-cyan-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
+                      <Calendar size={11} /> Período Inicial (De)
+                    </Label>
+                    <Input
+                      type="date"
+                      value={pickingStartDateFilter}
+                      onChange={(e) => {
+                        setPickingStartDateFilter(e.target.value);
+                        setPickingDatePreset('custom');
+                      }}
+                      className="bg-slate-900 border-slate-800 text-slate-200 h-8.5 text-xs"
+                    />
+                  </div>
+
+                  {/* Filtro Data Final (Até) */}
+                  <div className="space-y-1.5">
+                    <Label className="text-[10px] text-cyan-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
+                      <Calendar size={11} /> Período Final (Até)
+                    </Label>
+                    <Input
+                      type="date"
+                      value={pickingEndDateFilter}
+                      onChange={(e) => {
+                        setPickingEndDateFilter(e.target.value);
+                        setPickingDatePreset('custom');
+                      }}
+                      className="bg-slate-900 border-slate-800 text-slate-200 h-8.5 text-xs"
+                    />
+                  </div>
+                </div>
+
+                {/* Atalhos rápidos de data e limpar filtros */}
+                <div className="pt-2 border-t border-slate-850/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider mr-1">Atalhos:</span>
+                    {[
+                      { id: 'today', label: 'Hoje' },
+                      { id: 'yesterday', label: 'Ontem' },
+                      { id: '7days', label: '7 Dias' },
+                      { id: '30days', label: '30 Dias' },
+                      { id: 'thisMonth', label: 'Este Mês' },
+                      { id: 'all', label: 'Todo Período' },
+                    ].map(p => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => applyPickingDatePreset(p.id)}
+                        className={`text-[11px] font-bold px-2.5 py-0.5 rounded-md border transition-all ${
+                          pickingDatePreset === p.id 
+                            ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-sm font-extrabold' 
+                            : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border-slate-800'
+                        }`}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {(pickingStatusFilter !== 'active' || pickingStartDateFilter || pickingEndDateFilter || pickingBranchFilter !== 'all' || effectiveSearch) && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleClearPickingFilters}
+                      className="text-slate-400 hover:text-amber-400 border border-dashed border-slate-800 hover:border-amber-500/40 h-7 px-2.5 text-[11px] font-bold"
+                    >
+                      <XCircle size={12} className="mr-1 text-amber-500" /> Limpar Filtros
+                    </Button>
+                  )}
+                </div>
+              </div>
             </CardHeader>
             <CardContent className="p-0">
               {selectedPickingOrderIds.length > 0 && (
@@ -441,10 +802,21 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                       Resetar Separação ({selectedPickingOrderIds.length})
                     </Button>
 
+                    {/* BOTÃO CANCELAR SEPARAÇÕES DIRETAMENTE EM LOTE */}
+                    <Button
+                      onClick={() => setCancelDirectBatchPromptOpen(true)}
+                      variant="outline"
+                      className="bg-rose-950/80 hover:bg-rose-900 text-rose-200 border-rose-700/80 font-bold h-8 px-3 text-xs shadow-sm hover:shadow-rose-900/40"
+                      title="Cancelar definitivamente as separações selecionadas liberando o estoque, sem devolver para a aprovação"
+                    >
+                      <Ban size={14} className="mr-1.5 text-rose-300" />
+                      Cancelar Diretamente ({selectedPickingOrderIds.length})
+                    </Button>
+
                     <Button
                       onClick={() => handleBatchCancelPicking(true)}
                       variant="outline"
-                      className="bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border-rose-800/60 font-bold h-8 px-3 text-xs"
+                      className="bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-rose-400 border-slate-800 font-bold h-8 px-3 text-xs"
                       title="Devolver pedidos selecionados para a fila de aprovação administrativa (Pendente)"
                     >
                       <XCircle size={14} className="mr-1.5 text-rose-400" />
@@ -497,9 +869,13 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                   </TableHeader>
                   <TableBody>
                     {paginatedPickingOrders.map(order => {
-                      const branch = branches.find(b => b.id === order.branchId);
-                      const totalQty = order.items.reduce((sum, item) => sum + item.quantity, 0);
+                      const branch = findBranch(order.branchId);
+                      const safeItems = Array.isArray(order.items) ? order.items : [];
+                      const totalQty = safeItems.reduce((sum, item) => sum + (Number(item?.quantity) || 0), 0);
                       const isSelected = selectedPickingOrderIds.includes(order.id);
+                      const isDistribution = order.orderType === 'distribution' || (order.notes && order.notes.toLowerCase().includes('distribuição'));
+                      const isEpi = order.orderType === 'epi' || (order.notes && order.notes.toLowerCase().includes('epi'));
+
                       return (
                         <TableRow 
                           key={order.id} 
@@ -517,46 +893,76 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                           </TableCell>
                           <TableCell className="font-mono font-bold text-cyan-400">#{order.id.toUpperCase()}</TableCell>
                           <TableCell className="py-2.5 px-3">
-                            <div className="font-bold text-slate-200 text-xs break-words">{branch?.name}</div>
+                            <div className="flex flex-col gap-1">
+                              <div className="font-bold text-slate-200 text-xs break-words flex items-center gap-1.5 flex-wrap">
+                                <span>{branch.name}</span>
+                                {isDistribution && (
+                                  <Badge className="bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 text-[9px] px-1.5 py-0 font-bold whitespace-nowrap">
+                                    📦 Distribuição
+                                  </Badge>
+                                )}
+                                {isEpi && (
+                                  <Badge className="bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[9px] px-1.5 py-0 font-bold whitespace-nowrap">
+                                    🛡️ EPI
+                                  </Badge>
+                                )}
+                              </div>
+                              {safeItems.length > 0 && (
+                                <div className="text-[11px] text-slate-400 line-clamp-1 truncate max-w-[280px]" title={safeItems.map(it => `${findProduct(it.productId).name} (${it.quantity} un)`).join(', ')}>
+                                  {safeItems.map(it => `${findProduct(it.productId).name} (${it.quantity})`).join(', ')}
+                                </div>
+                              )}
+                            </div>
                           </TableCell>
                           <TableCell className="py-2.5 px-3">
-                            <div className="text-slate-400 text-xs font-semibold break-words">{branch?.location}</div>
+                            <div className="text-slate-400 text-xs font-semibold break-words">{branch.location}</div>
                           </TableCell>
                           <TableCell className="text-center">
                             {order.status === 'picking' ? (
                               <Badge className="bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-bold">Em Separação</Badge>
                             ) : order.status === 'approved' ? (
                               <Badge className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">Aprovado</Badge>
+                            ) : order.status === 'picked' ? (
+                              <Badge className="bg-blue-500/10 text-blue-400 border border-blue-500/20 font-bold">Separado</Badge>
+                            ) : order.status === 'rejected' ? (
+                              <Badge className="bg-rose-500/10 text-rose-400 border border-rose-500/20 font-bold">Cancelado</Badge>
                             ) : (
                               <Badge className="bg-amber-500/10 text-amber-500 border border-amber-500/20 font-bold">Pendente</Badge>
                             )}
                           </TableCell>
-                          <TableCell className="text-center font-bold text-slate-300">{totalQty} {totalQty === 1 ? 'UN' : 'UNs'}</TableCell>
+                          <TableCell className="text-center font-bold text-slate-300">
+                            <div className="flex flex-col items-center">
+                              <span className="text-xs font-bold text-slate-200">{totalQty} {totalQty === 1 ? 'UN' : 'UNs'}</span>
+                              <span className="text-[10px] text-slate-400 font-mono">({safeItems.length} {safeItems.length === 1 ? 'item' : 'itens'})</span>
+                            </div>
+                          </TableCell>
                           <TableCell className="text-right pr-6 py-4">
-                            <div className="flex items-center justify-end gap-2 flex-wrap sm:flex-nowrap">
+                            <div className="flex items-center justify-end gap-1.5 flex-wrap sm:flex-nowrap">
                               {/* Separação Automática / Digital */}
-                              <Button 
-                                onClick={() => {
-                                  if (order.status === 'approved') {
-                                    updateBranchOrderStatus(order.id, 'picking');
-                                  }
-                                  setPickedQuantities({});
-                                  setSelectedPickingOrder(order);
-                                }}
-                                className="bg-amber-500 hover:bg-amber-400 text-white font-bold h-9 px-3.5 rounded-md shadow-md shadow-amber-500/10 border-none transition-all text-xs"
-                                title="Iniciar separação automática pelo sistema com checklist digital"
-                              >
-                                <ClipboardList size={14} className="mr-1.5" /> Iniciar Separação
-                              </Button>
+                              {(order.status === 'approved' || order.status === 'picking') && (
+                                <Button 
+                                  onClick={() => {
+                                    if (order.status === 'approved') {
+                                      updateBranchOrderStatus(order.id, 'picking');
+                                    }
+                                    setPickedQuantities({});
+                                    setSelectedPickingOrder(order);
+                                  }}
+                                  className="bg-amber-500 hover:bg-amber-400 text-white font-bold h-8.5 px-3 rounded-md shadow-md shadow-amber-500/10 border-none transition-all text-xs"
+                                  title="Iniciar separação automática pelo sistema com checklist digital"
+                                >
+                                  <ClipboardList size={13} className="mr-1.5" /> Iniciar
+                                </Button>
+                              )}
 
                               {/* Separação Manual (PDF) */}
                               <Button 
                                 onClick={() => handleManualPickingPDF(order)}
                                 variant="outline"
-                                className="bg-slate-900 hover:bg-slate-800 text-cyan-400 border-slate-700 font-bold h-9 px-3.5 rounded-md transition-all text-xs"
+                                className="bg-slate-900 hover:bg-slate-800 text-cyan-400 border-slate-700 font-bold h-8.5 px-2.5 rounded-md transition-all text-xs"
                                 title="Emitir PDF do pedido para separação física manual"
                               >
-                                <Printer size={14} className="mr-1.5" /> Separação Manual (PDF)
+                                <Printer size={13} className="mr-1" /> PDF
                               </Button>
 
                               {/* Confirmar Separação direta (Manual) */}
@@ -568,34 +974,51 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                                     setLabelOrderPrompt(order);
                                     setLabelCount(1);
                                   }}
-                                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold h-9 px-3.5 rounded-md shadow-md shadow-emerald-500/10 border-none transition-all text-xs"
+                                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold h-8.5 px-3 rounded-md shadow-md shadow-emerald-500/10 border-none transition-all text-xs"
                                   title="Confirmar que a separação física foi concluída"
                                 >
-                                  <CheckCircle2 size={14} className="mr-1.5" /> Confirmar Separação
+                                  <CheckCircle2 size={13} className="mr-1.5" /> Confirmar
                                 </Button>
                               )}
 
-                              {/* Resetar Separação / Voltar para Aprovado */}
+                              {/* Resetar Separação / Voltar para Aguardando Início */}
                               {order.status === 'picking' && (
                                 <Button 
                                   onClick={() => handleCancelSinglePicking(order, false)}
                                   variant="outline"
-                                  className="bg-slate-900 hover:bg-slate-800 text-amber-400 border-slate-700 font-bold h-9 px-3 rounded-md transition-all text-xs"
-                                  title="Resetar separação em andamento e retornar para Aguardando Início"
+                                  className="bg-amber-950/40 hover:bg-amber-900/60 text-amber-300 border-amber-800/60 font-bold h-8.5 px-2.5 rounded-md transition-all text-xs"
+                                  title="Resetar separação em andamento e retornar para Aguardando Início (Aprovado)"
                                 >
-                                  <RotateCcw size={14} className="mr-1.5 text-amber-400" /> Resetar
+                                  <RotateCcw size={13} className="mr-1 text-amber-400" /> Resetar
+                                </Button>
+                              )}
+
+                              {/* BOTÃO CANCELAR SEPARAÇÃO DIRETAMENTE (SEM DEVOLVER PARA APROVAÇÃO) */}
+                              {(order.status === 'approved' || order.status === 'picking') && (
+                                <Button 
+                                  onClick={() => {
+                                    setCancelDirectOrderPrompt(order);
+                                    setDirectCancelReason('');
+                                  }}
+                                  variant="outline"
+                                  className="bg-rose-950/80 hover:bg-rose-900 text-rose-200 border-rose-700/80 font-bold h-8.5 px-2.5 rounded-md transition-all text-xs shadow-sm hover:shadow-rose-900/40"
+                                  title="Cancelar separação e encerrar o pedido diretamente liberando o estoque, sem devolver para a fila de aprovação"
+                                >
+                                  <Ban size={13} className="mr-1.5 text-rose-300" /> Cancelar Diretamente
                                 </Button>
                               )}
 
                               {/* Devolver para Aprovação Administrativa */}
-                              <Button 
-                                onClick={() => handleCancelSinglePicking(order, true)}
-                                variant="outline"
-                                className="bg-rose-950/40 hover:bg-rose-900/60 text-rose-400 border-rose-800/50 font-bold h-9 px-3 rounded-md transition-all text-xs"
-                                title="Cancelar e devolver pedido para a fila de aprovação (Pendente)"
-                              >
-                                <XCircle size={14} className="mr-1.5" /> Devolver p/ Aprovação
-                              </Button>
+                              {(order.status === 'approved' || order.status === 'picking') && (
+                                <Button 
+                                  onClick={() => handleCancelSinglePicking(order, true)}
+                                  variant="outline"
+                                  className="bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-rose-400 border-slate-800 font-medium h-8.5 px-2 rounded-md transition-all text-xs"
+                                  title="Cancelar e devolver pedido para a fila de aprovação administrativa (Pendente)"
+                                >
+                                  <XCircle size={13} className="mr-1" /> Devolver p/ Aprovação
+                                </Button>
+                              )}
                             </div>
                           </TableCell>
                         </TableRow>
@@ -603,12 +1026,31 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                     })}
                     {pickingCitiesOrders.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={7} className="text-center py-20 text-slate-500">
-                          <div className="flex flex-col items-center gap-4">
-                            <Box size={48} className="text-slate-700" />
-                            <p className="text-lg font-medium">Nenhuma separação pendente.</p>
-                            <p className="text-sm text-slate-600">Novos pedidos aparecem aqui após aprovação pelo administrativo.</p>
-                          </div>
+                        <TableCell colSpan={7} className="text-center py-16 text-slate-500">
+                          {effectiveSearch || pickingStatusFilter !== 'active' || pickingStartDateFilter || pickingEndDateFilter || pickingBranchFilter !== 'all' ? (
+                            <div className="flex flex-col items-center gap-3">
+                              <Search size={40} className="text-amber-500/60" />
+                              <p className="text-base font-bold text-amber-300">Nenhum pedido encontrado para os filtros selecionados.</p>
+                              <p className="text-xs text-slate-400 max-w-md">
+                                {effectiveSearch ? `Termo de busca: "${effectiveSearch}". ` : ''}
+                                Verifique as datas selecionadas, filial ou status selecionado.
+                              </p>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={handleClearPickingFilters}
+                                className="bg-slate-900 border-amber-500/30 text-amber-300 hover:bg-slate-800 text-xs font-bold mt-1"
+                              >
+                                <RotateCcw size={13} className="mr-1.5" /> Limpar Filtros e Ver Ativos
+                              </Button>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col items-center gap-4">
+                              <Box size={48} className="text-slate-700" />
+                              <p className="text-lg font-medium text-slate-300">Nenhuma separação pendente no momento.</p>
+                              <p className="text-sm text-slate-500">Novos pedidos aparecem aqui imediatamente após serem aprovados no Administrativo.</p>
+                            </div>
+                          )}
                         </TableCell>
                       </TableRow>
                     )}
@@ -656,31 +1098,29 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                           {ordersInLoading.length > 0 && <span className="text-cyan-400 ml-2 font-bold">({ordersInLoading.length} em carregamento)</span>}
                         </p>
                       </div>
-                      <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {hasOrdersToLoad && (
+                          <Button
+                            onClick={() => handleStartLoadingForCity(city, cityOrders)}
+                            className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black h-11 px-5 rounded-lg transition-all border-none shadow-lg shadow-cyan-500/20"
+                            title="Mover pedidos aguardando para Carregando no Veículo"
+                          >
+                            <ArrowRight size={16} className="mr-2" /> Iniciar Carregamento ({ordersToLoad.length})
+                          </Button>
+                        )}
                         <Button
-                          onClick={() => handleCityLoadingAction(city, cityOrders)}
-                          className={`font-black h-11 px-6 rounded-lg transition-all border-none shadow-lg ${
-                            hasOrdersToLoad 
-                              ? "bg-cyan-500 hover:bg-cyan-400 text-slate-950 shadow-cyan-500/20" 
-                              : "bg-emerald-500 hover:bg-emerald-400 text-white shadow-emerald-500/20"
-                          }`}
+                          onClick={() => handleDispatchCityOrders(city, cityOrders)}
+                          className="bg-emerald-500 hover:bg-emerald-400 text-white font-black h-11 px-5 rounded-lg transition-all border-none shadow-lg shadow-emerald-500/20"
+                          title="Despachar pedidos desta praça em trânsito"
                         >
-                          {hasOrdersToLoad ? (
-                            <>
-                              <ArrowRight size={16} className="mr-2" /> Iniciar Carregamento ({ordersToLoad.length})
-                            </>
-                          ) : (
-                            <>
-                              <CheckCircle2 size={16} className="mr-2" /> Finalizar & Despachar Carga ({ordersInLoading.length})
-                            </>
-                          )}
+                          <CheckCircle2 size={16} className="mr-2" /> Despachar Carga ({ordersInLoading.length > 0 ? ordersInLoading.length : totalOrders})
                         </Button>
                       </div>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
                       {cityOrders.map((order: any) => {
-                        const branch = branches.find(b => b.id === order.branchId);
+                        const branch = findBranch(order.branchId);
                         const isCurrentlyLoading = order.status === 'loading';
                         return (
                           <div key={order.id} className="bg-slate-900/40 rounded-lg p-4 border border-slate-800/80 flex flex-col justify-between gap-3">
@@ -829,7 +1269,7 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                   title="Exportar Lista de Pedidos Enviados"
                   description="Exporte o histórico completo de pedidos enviados em planilha Excel."
                   data={finishedOrders.map(o => {
-                    const branch = branches.find(b => b.id === o.branchId);
+                    const branch = findBranch(o.branchId);
                     const totalQty = o.items.reduce((sum, item) => sum + item.quantity, 0);
                     return {
                       IDPedido: o.id.toUpperCase(),
@@ -897,7 +1337,7 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                     </TableHeader>
                     <TableBody>
                       {paginatedFinishedOrders.map((order) => {
-                        const branch = branches.find(b => b.id === order.branchId);
+                        const branch = findBranch(order.branchId);
                         const totalPecas = order.items.reduce((sum: number, i: any) => sum + i.quantity, 0);
                         return (
                           <TableRow key={order.id} className="border-slate-800/60 hover:bg-slate-900/40 transition-colors">
@@ -1159,7 +1599,7 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
         <DialogContent className="w-full h-full sm:h-[90vh] max-h-screen sm:max-h-[90vh] sm:max-w-[95vw] md:max-w-4xl bg-slate-950 border-slate-800 text-white flex flex-col p-0 rounded-none sm:rounded-xl overflow-hidden shadow-2xl">
           {selectedPickingOrder && (() => {
             const currentOrderAndState = branchOrders.find(o => o.id === selectedPickingOrder.id) || selectedPickingOrder;
-            const branch = branches.find(b => b.id === currentOrderAndState.branchId);
+            const branch = findBranch(currentOrderAndState.branchId);
             const isCollectorModeActive = viewMode === 'collector' || (viewMode === 'auto' && isMobileDevice);
 
             return (
@@ -1282,7 +1722,7 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                     /* 📱 MOBILE / RUN-TIME COLETOR OPTIMIZED VIEW */
                     <div className="space-y-4">
                       {currentOrderAndState.items.map((item: any, idx: number) => {
-                        const product = products.find(p => p.id === item.productId);
+                        const product = findProduct(item.productId);
                         const pickedQtyVal = pickedQuantities[item.productId] ?? '';
                         const parsedQty = Number(pickedQtyVal);
                         const isFilled = pickedQtyVal !== '' && parsedQty > 0;
@@ -1434,7 +1874,7 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                         </TableHeader>
                         <TableBody>
                           {currentOrderAndState.items.map((item: any, idx: number) => {
-                            const product = products.find(p => p.id === item.productId);
+                            const product = findProduct(item.productId);
                             const pickedQtyVal = pickedQuantities[item.productId] ?? '';
                             const isFilled = pickedQtyVal !== '' && Number(pickedQtyVal) > 0;
                             const isFullyPicked = isFilled && Number(pickedQtyVal) === item.quantity;
@@ -1528,25 +1968,38 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                     </Button>
                     <Button 
                       variant="outline" 
-                      className="bg-slate-900 hover:bg-slate-800 text-amber-400 border-slate-700 font-bold h-10 px-3.5 rounded-lg transition-all text-xs"
+                      className="bg-amber-950/40 hover:bg-amber-900/60 text-amber-300 border-amber-800/60 font-bold h-10 px-3.5 rounded-lg transition-all text-xs"
                       onClick={() => {
                         handleCancelSinglePicking(currentOrderAndState, false);
                         setSelectedPickingOrder(null);
+                        setPickedQuantities({});
                       }}
-                      title="Resetar contagem e voltar para Aguardando Início"
+                      title="Cancelar conferência e retornar pedido para Aguardando Início (Aprovado)"
                     >
-                      <RotateCcw size={15} className="mr-1.5" /> Resetar Separação
+                      <RotateCcw size={15} className="mr-1.5 text-amber-400" /> Resetar p/ Aguardando
                     </Button>
                     <Button 
                       variant="outline" 
-                      className="bg-rose-950/40 hover:bg-rose-900/60 text-rose-400 border-rose-800/60 font-bold h-10 px-3.5 rounded-lg transition-all text-xs"
+                      className="bg-rose-950 hover:bg-rose-900 text-rose-200 border-rose-700/80 font-bold h-10 px-3.5 rounded-lg transition-all text-xs shadow-sm"
+                      onClick={() => {
+                        setCancelDirectOrderPrompt(currentOrderAndState);
+                        setDirectCancelReason('');
+                      }}
+                      title="Cancelar separação e encerrar o pedido diretamente liberando o estoque, sem devolver para a aprovação"
+                    >
+                      <Ban size={15} className="mr-1.5 text-rose-300" /> Cancelar Diretamente
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      className="bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-rose-400 border-slate-800 font-bold h-10 px-3.5 rounded-lg transition-all text-xs"
                       onClick={() => {
                         handleCancelSinglePicking(currentOrderAndState, true);
                         setSelectedPickingOrder(null);
+                        setPickedQuantities({});
                       }}
-                      title="Devolver pedido para a fila de aprovação administrativa"
+                      title="Devolver pedido para a fila de aprovação administrativa (Pendente)"
                     >
-                      <XCircle size={15} className="mr-1.5" /> Devolver p/ Aprovação
+                      <XCircle size={15} className="mr-1.5 text-rose-400" /> Devolver p/ Aprovação
                     </Button>
                   </div>
                   <Button 
@@ -1936,7 +2389,7 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                 Deseja imprimir a etiqueta de identificação em folha A4 para colar nas caixas do <span className="text-cyan-400 font-bold">Pedido #{labelOrderPrompt?.id?.toUpperCase()}</span>?
               </p>
               {labelOrderPrompt && (() => {
-                const br = branches.find(b => b.id === labelOrderPrompt.branchId);
+                const br = findBranch(labelOrderPrompt.branchId);
                 let city = br?.location || br?.name || '';
                 if (br?.location) {
                   const parts = br.location.split(/[-–,]/);
@@ -2006,13 +2459,152 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Modal de Confirmação: Cancelar Separação Diretamente (Pedido Individual) */}
+      <Dialog open={!!cancelDirectOrderPrompt} onOpenChange={(open) => !open && setCancelDirectOrderPrompt(null)}>
+        <DialogContent className="max-w-md bg-slate-950 border-rose-900/60 text-white p-6 shadow-2xl rounded-xl">
+          <DialogHeader className="space-y-2">
+            <div className="w-12 h-12 rounded-full bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400 mb-1">
+              <Ban size={24} />
+            </div>
+            <DialogTitle className="text-xl font-bold text-white flex items-center gap-2">
+              Cancelar Separação Diretamente
+            </DialogTitle>
+            <DialogDescription className="text-slate-400 text-xs">
+              Esta ação encerra a separação e cancela o pedido diretamente, estornando os produtos para o estoque sem precisar devolver para a fila de aprovação.
+            </DialogDescription>
+          </DialogHeader>
+
+          {cancelDirectOrderPrompt && (() => {
+            const branch = findBranch(cancelDirectOrderPrompt.branchId);
+            const totalItems = (cancelDirectOrderPrompt.items || []).reduce((s: number, i: any) => s + i.quantity, 0);
+            return (
+              <div className="space-y-4 my-2">
+                <div className="bg-slate-900/80 border border-slate-800 rounded-lg p-3.5 space-y-2 text-xs">
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400">Pedido:</span>
+                    <span className="font-mono font-bold text-cyan-400">#{cancelDirectOrderPrompt.id.toUpperCase()}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400">Filial Destino:</span>
+                    <span className="font-bold text-slate-200">{branch?.name || 'N/A'}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400">Cidade:</span>
+                    <span className="text-slate-300">{branch?.location || 'N/A'}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400">Total de Peças:</span>
+                    <span className="font-bold text-amber-300">{totalItems} UN(s) ({(cancelDirectOrderPrompt.items || []).length} itens)</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400">Status Atual:</span>
+                    <Badge className="bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px]">
+                      {cancelDirectOrderPrompt.status === 'picking' ? 'Em Separação' : 'Aguardando Início'}
+                    </Badge>
+                  </div>
+                </div>
+
+                <div className="bg-rose-950/30 border border-rose-800/40 rounded-lg p-3 text-xs text-rose-300 space-y-1">
+                  <div className="font-bold flex items-center gap-1.5 text-rose-200">
+                    <AlertTriangle size={14} className="text-rose-400 flex-shrink-0" />
+                    Estorno automático de estoque
+                  </div>
+                  <p className="text-[11px] leading-relaxed text-rose-300/90">
+                    Todos os {totalItems} item(ns) reservados para este pedido serão liberados de volta ao estoque central imediatamente. O pedido ficará registrado com status Cancelado/Rejeitado.
+                  </p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] font-bold text-slate-400">Motivo do cancelamento (opcional):</Label>
+                  <Input
+                    placeholder="Ex: Produto com avaria, cancelamento solicitado pela filial..."
+                    value={directCancelReason}
+                    onChange={(e) => setDirectCancelReason(e.target.value)}
+                    className="bg-slate-900 border-slate-800 text-xs text-slate-200 h-9"
+                  />
+                </div>
+              </div>
+            );
+          })()}
+
+          <DialogFooter className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800/80">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setCancelDirectOrderPrompt(null);
+                setDirectCancelReason('');
+              }}
+              className="text-slate-400 hover:text-white text-xs h-9"
+            >
+              Voltar / Fechar
+            </Button>
+            <Button
+              onClick={handleConfirmDirectCancel}
+              className="bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs h-9 px-4 shadow-lg shadow-rose-600/20 border-none"
+            >
+              <Ban size={14} className="mr-1.5" /> Confirmar Cancelamento Direto
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Confirmação: Cancelar Separações em Lote Diretamente */}
+      <Dialog open={cancelDirectBatchPromptOpen} onOpenChange={setCancelDirectBatchPromptOpen}>
+        <DialogContent className="max-w-md bg-slate-950 border-rose-900/60 text-white p-6 shadow-2xl rounded-xl">
+          <DialogHeader className="space-y-2">
+            <div className="w-12 h-12 rounded-full bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400 mb-1">
+              <Ban size={24} />
+            </div>
+            <DialogTitle className="text-xl font-bold text-white flex items-center gap-2">
+              Cancelar {selectedPickingOrderIds.length} Separações Diretamente
+            </DialogTitle>
+            <DialogDescription className="text-slate-400 text-xs">
+              Deseja realmente cancelar em lote as separações selecionadas sem devolver para a fila de aprovação?
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 my-2">
+            <div className="bg-rose-950/30 border border-rose-800/40 rounded-lg p-3.5 text-xs text-rose-300 space-y-1.5">
+              <div className="font-bold flex items-center gap-1.5 text-rose-200">
+                <AlertTriangle size={15} className="text-rose-400 flex-shrink-0" />
+                Estorno de estoque em lote
+              </div>
+              <p className="text-[11px] leading-relaxed text-rose-300/90">
+                Os {selectedPickingOrderIds.length} pedidos selecionados serão alterados para o status Cancelado/Rejeitado e todas as quantidades reservadas voltarão ao estoque disponível central imediatamente.
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800/80">
+            <Button
+              variant="ghost"
+              onClick={() => setCancelDirectBatchPromptOpen(false)}
+              className="text-slate-400 hover:text-white text-xs h-9"
+            >
+              Voltar
+            </Button>
+            <Button
+              onClick={handleConfirmBatchDirectCancel}
+              className="bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs h-9 px-4 shadow-lg shadow-rose-600/20 border-none"
+            >
+              <Ban size={14} className="mr-1.5" /> Confirmar Cancelamento em Lote
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
 function OrderCard({ order, onAction, actionLabel, icon, showItems = false, onPrintPDF, onPrintLabel }: any) {
   const { branches, products } = useRamoxContext();
-  const branch = branches.find(b => b.id === order.branchId);
+  const cleanId = (order.branchId || '').trim().toLowerCase();
+  const branch = branches.find(b => 
+    b.id.toLowerCase() === cleanId || 
+    toValidUUID(b.id) === toValidUUID(order.branchId) ||
+    b.name.toLowerCase() === cleanId
+  );
 
   return (
     <Card className="border-slate-800 bg-slate-900/50 shadow-xl hover:border-slate-700 transition-all group overflow-hidden flex flex-col justify-between">

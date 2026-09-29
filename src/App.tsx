@@ -169,13 +169,14 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const handleHide = () => setIsSidebarOpen(false);
-    const handleShow = () => setIsSidebarOpen(true);
-    window.addEventListener('hide-sidebar', handleHide);
-    window.addEventListener('show-sidebar', handleShow);
+    const handleNavigate = (e: any) => {
+      if (e.detail && typeof e.detail === 'string') {
+        setActiveTab(e.detail);
+      }
+    };
+    window.addEventListener('navigate-tab', handleNavigate);
     return () => {
-      window.removeEventListener('hide-sidebar', handleHide);
-      window.removeEventListener('show-sidebar', handleShow);
+      window.removeEventListener('navigate-tab', handleNavigate);
     };
   }, []);
 
@@ -218,6 +219,7 @@ export default function App() {
         { id: 'admin_suppliers', label: 'Fornecedores', icon: Users, roles: ['admin'] },
         { id: 'admin_purchases', label: 'Pedidos de Compra', icon: ShoppingCart, roles: ['admin', 'logistics'] },
         { id: 'admin_approval', label: 'Aprovação Pedidos', icon: CheckCircle2, roles: ['admin', 'logistics'] },
+        { id: 'admin_picking', label: 'Separação (Picking)', icon: Box, roles: ['admin', 'logistics'] },
         { id: 'admin_invoicing', label: 'Faturamento', icon: FileText, roles: ['admin', 'logistics'] },
         { id: 'admin_inventory', label: 'Estoque Central', icon: ClipboardList, roles: ['admin', 'logistics'] },
         { id: 'admin_distribution', label: 'Distribuição', icon: Share2, roles: ['admin', 'logistics'] },
@@ -371,9 +373,6 @@ export default function App() {
                         } else {
                           setActiveTab(section.id);
                         }
-                        if (refreshData) {
-                          refreshData();
-                        }
                       }}
                       className={`sidebar-item w-full flex items-center justify-between group ${isActive && !hasChildren ? 'active' : ''} ${isActive && hasChildren ? 'text-white bg-slate-800/50' : ''}`}
                     >
@@ -400,9 +399,6 @@ export default function App() {
                               key={child.id}
                               onClick={() => {
                                 setActiveTab(child.id);
-                                if (refreshData) {
-                                  refreshData();
-                                }
                               }}
                               className={`sidebar-item w-full ml-4 w-[calc(100%-1rem)] py-2 text-sm ${activeTab === child.id ? 'active text-cyan-400' : 'text-slate-400 hover:text-slate-200'}`}
                             >

@@ -71,6 +71,9 @@ export interface BranchOrder {
   createdAt: any; // Timestamp
   approvedBy?: string;
   approvedAt?: string;
+  notes?: string;
+  recipientName?: string;
+  orderType?: 'order' | 'distribution' | 'epi';
 }
 
 export type DistributionType = 'general' | 'epi';

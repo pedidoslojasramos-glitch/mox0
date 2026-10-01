@@ -248,7 +248,17 @@ export default function AdminModule({ initialTab }: { initialTab?: string }) {
 }
 
 function InventoryTab() {
-  const { products, globalSearch, requestInventoryCount, requestGeneralInventoryCount, inventoryCounts, productClassifications, settings } = useRamoxContext();
+  const { 
+    products, 
+    globalSearch, 
+    requestInventoryCount, 
+    requestGeneralInventoryCount, 
+    cancelInventoryCount,
+    cancelAllPendingInventoryCounts,
+    inventoryCounts, 
+    productClassifications, 
+    settings 
+  } = useRamoxContext();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
@@ -327,6 +337,19 @@ function InventoryTab() {
           >
             <FileDown size={18} />
             <span>Baixar PDF Contagem Manual ({pendingCounts.length})</span>
+          </Button>
+          <Button 
+            variant="outline"
+            className="border-rose-500/30 text-rose-400 hover:bg-rose-500/10 hover:text-rose-300 h-11 px-4 rounded-lg font-bold transition-all flex items-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            disabled={pendingCounts.length === 0}
+            onClick={() => {
+              cancelAllPendingInventoryCounts();
+              toast.info('Todas as contagens de inventário pendentes foram canceladas.');
+            }}
+            title="Cancelar todas as solicitações de contagem pendentes"
+          >
+            <XCircle size={18} />
+            <span>Cancelar Contagens ({pendingCounts.length})</span>
           </Button>
           <Button 
             className="bg-slate-900 hover:bg-slate-800 text-white h-11 px-6 rounded-lg shadow-lg font-bold transition-all hover:scale-[1.02] border-none"
@@ -415,6 +438,7 @@ function InventoryTab() {
               {paginatedProducts.map((p) => {
                 const stockPercentage = Math.min(100, (p.currentStock / (p.minStock * 2)) * 100);
                 const isCritical = p.currentStock <= p.minStock;
+                const productPendingCount = pendingCounts.find(c => c.productId === p.id);
                 
                 return (
                   <TableRow key={p.id}>
@@ -460,32 +484,72 @@ function InventoryTab() {
                           <span className="text-xs font-bold text-red-600 flex items-center gap-1">
                             <Plus size={12} /> Comprar {p.minStock * 2 - p.currentStock} {p.unit}
                           </span>
-                          <Button 
-                            variant="outline" 
-                            size="sm" 
-                            className="h-7 text-[10px] font-bold uppercase border-slate-200 hover:bg-slate-50"
-                            onClick={() => {
-                              requestInventoryCount(p.id);
-                              toast.success(`Contagem solicitada para: ${p.name}`);
-                            }}
-                          >
-                            Solicitar Contagem
-                          </Button>
+                          {productPendingCount ? (
+                            <div className="flex items-center gap-1.5">
+                              <Badge className="bg-amber-500/10 text-amber-500 border border-amber-500/20 text-[10px] font-bold">
+                                Contagem Pendente
+                              </Badge>
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                className="h-7 text-[10px] font-bold uppercase border-rose-500/30 text-rose-500 hover:bg-rose-50 hover:text-rose-600 flex items-center gap-1"
+                                onClick={() => {
+                                  cancelInventoryCount(productPendingCount.id);
+                                  toast.info(`Contagem de "${p.name}" cancelada.`);
+                                }}
+                                title="Cancelar contagem pendente deste produto"
+                              >
+                                <XCircle size={12} /> Cancelar
+                              </Button>
+                            </div>
+                          ) : (
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              className="h-7 text-[10px] font-bold uppercase border-slate-200 hover:bg-slate-50"
+                              onClick={() => {
+                                requestInventoryCount(p.id);
+                                toast.success(`Contagem solicitada para: ${p.name}`);
+                              }}
+                            >
+                              Solicitar Contagem
+                            </Button>
+                          )}
                         </div>
                       ) : (
                         <div className="flex flex-col gap-2">
                           <span className="text-xs text-slate-400">Estoque em conformidade</span>
-                          <Button 
-                            variant="ghost" 
-                            size="sm" 
-                            className="h-7 text-[10px] font-bold uppercase text-slate-400 hover:text-slate-600"
-                            onClick={() => {
-                              requestInventoryCount(p.id);
-                              toast.success(`Contagem solicitada para: ${p.name}`);
-                            }}
-                          >
-                            Solicitar Contagem
-                          </Button>
+                          {productPendingCount ? (
+                            <div className="flex items-center gap-1.5">
+                              <Badge className="bg-amber-500/10 text-amber-500 border border-amber-500/20 text-[10px] font-bold">
+                                Contagem Pendente
+                              </Badge>
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                className="h-7 text-[10px] font-bold uppercase border-rose-500/30 text-rose-500 hover:bg-rose-50 hover:text-rose-600 flex items-center gap-1"
+                                onClick={() => {
+                                  cancelInventoryCount(productPendingCount.id);
+                                  toast.info(`Contagem de "${p.name}" cancelada.`);
+                                }}
+                                title="Cancelar contagem pendente deste produto"
+                              >
+                                <XCircle size={12} /> Cancelar
+                              </Button>
+                            </div>
+                          ) : (
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              className="h-7 text-[10px] font-bold uppercase text-slate-400 hover:text-slate-600"
+                              onClick={() => {
+                                requestInventoryCount(p.id);
+                                toast.success(`Contagem solicitada para: ${p.name}`);
+                              }}
+                            >
+                              Solicitar Contagem
+                            </Button>
+                          )}
                         </div>
                       )}
                     </TableCell>

@@ -67,6 +67,8 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
     setGlobalSearch,
     inventoryCounts, 
     completeInventoryCount,
+    cancelInventoryCount,
+    cancelAllPendingInventoryCounts,
     purchaseOrders,
     suppliers,
     updatePurchaseOrderStatus,
@@ -1469,6 +1471,21 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                   <FileDown size={16} />
                   <span>Baixar PDF Contagem Manual ({pendingCounts.length})</span>
                 </Button>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={pendingCounts.length === 0}
+                  onClick={() => {
+                    cancelAllPendingInventoryCounts();
+                    toast.info('Todas as contagens pendentes foram canceladas com sucesso.');
+                  }}
+                  className="border-rose-500/30 text-rose-400 hover:bg-rose-500/10 hover:text-rose-300 font-bold text-xs h-10 px-3.5 rounded-lg flex items-center gap-1.5 transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                  title="Cancelar todas as solicitações de contagem pendentes"
+                >
+                  <XCircle size={15} />
+                  <span>Cancelar Todas</span>
+                </Button>
               </div>
             </CardHeader>
 
@@ -1482,7 +1499,7 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                       <TableHead className="text-slate-500 font-bold uppercase text-[10px] tracking-widest">Solicitado em</TableHead>
                       <TableHead className="text-slate-500 font-bold uppercase text-[10px] tracking-widest text-center">Estoque Sistema</TableHead>
                       <TableHead className="text-slate-500 font-bold uppercase text-[10px] tracking-widest text-center w-48">Qtd Contada (Física)</TableHead>
-                      <TableHead className="text-right text-slate-500 font-bold uppercase text-[10px] tracking-widest pr-6">Ação</TableHead>
+                      <TableHead className="text-right text-slate-500 font-bold uppercase text-[10px] tracking-widest pr-6">Ações</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1516,21 +1533,35 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                             </div>
                           </TableCell>
                           <TableCell className="text-right pr-6">
-                            <Button 
-                              size="sm"
-                              className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold h-9 px-4 rounded-lg shadow-md transition-all text-xs"
-                              onClick={() => {
-                                const input = document.getElementById(`count-input-${count.id}`) as HTMLInputElement;
-                                if (input && input.value !== '') {
-                                  completeInventoryCount(count.id, Number(input.value));
-                                  toast.success(`Contagem de "${product?.name}" finalizada com sucesso!`);
-                                } else {
-                                  toast.error('Informe a quantidade contada no estoque.');
-                                }
-                              }}
-                            >
-                              <CheckCircle2 size={14} className="mr-1.5" /> Confirmar
-                            </Button>
+                            <div className="flex items-center justify-end gap-2">
+                              <Button 
+                                size="sm"
+                                className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold h-9 px-4 rounded-lg shadow-md transition-all text-xs"
+                                onClick={() => {
+                                  const input = document.getElementById(`count-input-${count.id}`) as HTMLInputElement;
+                                  if (input && input.value !== '') {
+                                    completeInventoryCount(count.id, Number(input.value));
+                                    toast.success(`Contagem de "${product?.name}" finalizada com sucesso!`);
+                                  } else {
+                                    toast.error('Informe a quantidade contada no estoque.');
+                                  }
+                                }}
+                              >
+                                <CheckCircle2 size={14} className="mr-1.5" /> Confirmar
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="border-rose-500/30 text-rose-400 hover:bg-rose-500/10 hover:text-rose-300 font-bold h-9 px-3 rounded-lg text-xs flex items-center gap-1 transition-all"
+                                onClick={() => {
+                                  cancelInventoryCount(count.id);
+                                  toast.info(`Contagem de "${product?.name}" cancelada com sucesso.`);
+                                }}
+                                title="Cancelar esta solicitação de contagem"
+                              >
+                                <XCircle size={14} /> Cancelar
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       );

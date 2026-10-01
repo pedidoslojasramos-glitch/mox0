@@ -61,7 +61,7 @@ export interface InventoryCount {
   id: string;
   productId: string;
   requestedAt: string;
-  status: 'pending' | 'completed';
+  status: 'pending' | 'completed' | 'cancelled';
   countedQuantity?: number;
   warehouseQuantityAtRequest: number;
 }

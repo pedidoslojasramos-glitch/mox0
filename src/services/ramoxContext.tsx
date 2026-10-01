@@ -1968,13 +1968,41 @@ export function useRamox() {
         p.id === count.productId ? { ...p, currentStock: quantity } : p
       );
 
-      return {
+      const updatedState = {
         ...prev,
         products: updatedProducts,
         inventoryCounts: prev.inventoryCounts.map(c => 
-          c.id === countId ? { ...c, status: 'completed', countedQuantity: quantity } : c
+          c.id === countId ? { ...c, status: 'completed' as const, countedQuantity: quantity } : c
         )
       };
+      mockDb.save(updatedState);
+      return updatedState;
+    });
+  };
+
+  const cancelInventoryCount = (countId: string) => {
+    setState(prev => {
+      const updatedState = {
+        ...prev,
+        inventoryCounts: prev.inventoryCounts.map(c => 
+          c.id === countId ? { ...c, status: 'cancelled' as const } : c
+        )
+      };
+      mockDb.save(updatedState);
+      return updatedState;
+    });
+  };
+
+  const cancelAllPendingInventoryCounts = () => {
+    setState(prev => {
+      const updatedState = {
+        ...prev,
+        inventoryCounts: prev.inventoryCounts.map(c => 
+          c.status === 'pending' ? { ...c, status: 'cancelled' as const } : c
+        )
+      };
+      mockDb.save(updatedState);
+      return updatedState;
     });
   };
 
@@ -2356,6 +2384,8 @@ export function useRamox() {
     requestInventoryCount,
     requestGeneralInventoryCount,
     completeInventoryCount,
+    cancelInventoryCount,
+    cancelAllPendingInventoryCounts,
     createDistribution,
     saveBranchLimits,
     checkBranchOrderLimits,

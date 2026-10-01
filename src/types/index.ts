@@ -57,6 +57,15 @@ export interface BranchLimits {
   productMonthlyLimits: { [productId: string]: number }; // quantidade maxima mensal por produto
 }
 
+export interface InventoryCount {
+  id: string;
+  productId: string;
+  requestedAt: string;
+  status: 'pending' | 'completed';
+  countedQuantity?: number;
+  warehouseQuantityAtRequest: number;
+}
+
 export type OrderStatus = 'pending' | 'approved' | 'rejected' | 'picking' | 'picked' | 'invoiced' | 'loading' | 'shipped' | 'delivered' | 'discrepancy';
 
 export interface BranchOrder {

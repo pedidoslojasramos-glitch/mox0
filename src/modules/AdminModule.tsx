@@ -39,7 +39,8 @@ import {
   Filter,
   Check,
   ShieldCheck,
-  User
+  User,
+  FileDown
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -54,7 +55,7 @@ import {
   TableHeader, 
   TableRow 
 } from '@/components/ui/table';
-import { generateRomaneioPDF, generatePurchaseOrderPDF, generateBoxLabelPDF, generateEpiTermPDF, generateDistributionRomaneioPDF, generateDistributionReceiptPDF } from '../utils/pdfGenerator';
+import { generateRomaneioPDF, generatePurchaseOrderPDF, generateBoxLabelPDF, generateEpiTermPDF, generateDistributionRomaneioPDF, generateDistributionReceiptPDF, generateManualInventoryCountPDF } from '../utils/pdfGenerator';
 import { 
   Dialog, 
   DialogContent, 
@@ -247,10 +248,12 @@ export default function AdminModule({ initialTab }: { initialTab?: string }) {
 }
 
 function InventoryTab() {
-  const { products, globalSearch, requestInventoryCount, requestGeneralInventoryCount, inventoryCounts, productClassifications } = useRamoxContext();
+  const { products, globalSearch, requestInventoryCount, requestGeneralInventoryCount, inventoryCounts, productClassifications, settings } = useRamoxContext();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
+
+  const pendingCounts = (inventoryCounts || []).filter(c => c.status === 'pending');
   
   const totalItems = products.reduce((acc, p) => acc + p.currentStock, 0);
   const totalValue = products.reduce((acc, p) => acc + (p.currentStock * p.price), 0);
@@ -304,6 +307,27 @@ function InventoryTab() {
               { key: 'StatusEstoque', label: 'Situação' },
             ]}
           />
+          <Button 
+            className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 h-11 px-5 rounded-lg shadow-lg shadow-cyan-500/20 font-bold transition-all hover:scale-[1.02] border-none flex items-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={pendingCounts.length === 0}
+            onClick={() => {
+              if (pendingCounts.length === 0) {
+                toast.info('Não há solicitações de contagem de inventário pendentes no momento.');
+                return;
+              }
+              generateManualInventoryCountPDF(
+                pendingCounts,
+                products,
+                'Administrador Central',
+                settings?.companyLogo
+              );
+              toast.success(`Folha de Contagem Manual em PDF (${pendingCounts.length} itens) gerada com sucesso!`);
+            }}
+            title="Baixar folha oficial para contagem física manual em PDF com checkpoints e campos para anotação a caneta"
+          >
+            <FileDown size={18} />
+            <span>Baixar PDF Contagem Manual ({pendingCounts.length})</span>
+          </Button>
           <Button 
             className="bg-slate-900 hover:bg-slate-800 text-white h-11 px-6 rounded-lg shadow-lg font-bold transition-all hover:scale-[1.02] border-none"
             onClick={() => {

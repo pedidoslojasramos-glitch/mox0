@@ -3,7 +3,7 @@ import { useRamoxContext } from '../services/RamoxContextComponent';
 import { toValidUUID, findProductHelper } from '../services/ramoxContext';
 import ExportExcelModal from '../components/ExportExcelModal';
 import Pagination from '../components/Pagination';
-import { generateRomaneioPDF, generateBoxLabelPDF, generateManualPickingPDF } from '../utils/pdfGenerator';
+import { generateRomaneioPDF, generateBoxLabelPDF, generateManualPickingPDF, generateManualInventoryCountPDF } from '../utils/pdfGenerator';
 import { RoutesModule } from './RoutesModule';
 import { 
   Dialog, 
@@ -19,7 +19,7 @@ import {
   Package, 
   CheckCircle2, 
   Clock, 
-  ArrowRight,
+  ArrowRight, 
   ClipboardList,
   Box,
   Search,
@@ -29,6 +29,7 @@ import {
   Minus,
   Printer,
   FileText,
+  FileDown,
   List,
   LayoutGrid,
   XCircle,
@@ -138,6 +139,20 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
       setPickedQuantities({});
       setSelectedPickingOrder(order);
     }
+  };
+
+  const handleDownloadManualCountPDF = () => {
+    if (pendingCounts.length === 0) {
+      toast.info('Não há solicitações de contagem de inventário pendentes no momento.');
+      return;
+    }
+    generateManualInventoryCountPDF(
+      pendingCounts,
+      products,
+      'Equipe de Logística / Almoxarifado Central',
+      settings?.companyLogo
+    );
+    toast.success(`Folha de Contagem Manual em PDF (${pendingCounts.length} itens) gerada com sucesso!`);
   };
 
   // Auto-detect mobile size or user agent (e.g. mobile phones or rugged data collectors)
@@ -1429,59 +1444,92 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
         </TabsContent>
 
         <TabsContent value="counts">
-          <Card className="border-none shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-lg">Contagens de Inventário Pendentes</CardTitle>
+          <Card className="border-slate-800 bg-slate-900/50 shadow-2xl backdrop-blur-xl">
+            <CardHeader className="border-b border-slate-800/50 pb-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <CardTitle className="text-xl font-bold text-white flex items-center gap-3">
+                  <ClipboardList size={22} className="text-cyan-400" />
+                  <span>Contagens de Inventário Pendentes</span>
+                  <Badge className="bg-amber-500/10 text-amber-400 border border-amber-500/20 font-bold">
+                    {pendingCounts.length} Pendente(s)
+                  </Badge>
+                </CardTitle>
+                <p className="text-sm text-slate-400 font-medium mt-1">
+                  Verificações de estoque solicitadas pela equipe administrativa para conferência física no Almoxarifado / CD.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <Button 
+                  onClick={handleDownloadManualCountPDF}
+                  disabled={pendingCounts.length === 0}
+                  className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs h-10 px-4 rounded-lg shadow-lg shadow-cyan-500/20 border-none flex items-center gap-2 transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  title="Baixar folha oficial para contagem física manual em PDF com checkpoints e campos para anotação a caneta"
+                >
+                  <FileDown size={16} />
+                  <span>Baixar PDF Contagem Manual ({pendingCounts.length})</span>
+                </Button>
+              </div>
             </CardHeader>
-            <CardContent>
+
+            <CardContent className="p-0">
               <div className="w-full overflow-x-auto">
                 <Table>
                   <TableHeader>
-                    <TableRow>
-                      <TableHead>Produto</TableHead>
-                      <TableHead>Código</TableHead>
-                      <TableHead>Solicitado em</TableHead>
-                      <TableHead>Estoque Sistema</TableHead>
-                      <TableHead className="w-48">Quantidade Contada</TableHead>
-                      <TableHead className="text-right">Ação</TableHead>
+                    <TableRow className="border-b border-slate-800 hover:bg-transparent">
+                      <TableHead className="text-slate-500 font-bold uppercase text-[10px] tracking-widest pl-6">Produto / Descrição</TableHead>
+                      <TableHead className="text-slate-500 font-bold uppercase text-[10px] tracking-widest">Código</TableHead>
+                      <TableHead className="text-slate-500 font-bold uppercase text-[10px] tracking-widest">Solicitado em</TableHead>
+                      <TableHead className="text-slate-500 font-bold uppercase text-[10px] tracking-widest text-center">Estoque Sistema</TableHead>
+                      <TableHead className="text-slate-500 font-bold uppercase text-[10px] tracking-widest text-center w-48">Qtd Contada (Física)</TableHead>
+                      <TableHead className="text-right text-slate-500 font-bold uppercase text-[10px] tracking-widest pr-6">Ação</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {paginatedPendingCounts.map(count => {
-                      const product = products.find(p => p.id === count.productId);
+                      const product = findProduct(count.productId);
                       return (
-                        <TableRow key={count.id}>
-                          <TableCell className="font-medium">{product?.name}</TableCell>
-                          <TableCell className="text-xs font-mono">{product?.code}</TableCell>
-                          <TableCell className="text-xs text-slate-500">
-                            {new Date(count.requestedAt).toLocaleDateString()}
+                        <TableRow key={count.id} className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors">
+                          <TableCell className="pl-6 py-3">
+                            <span className="font-bold text-slate-200 text-xs">{product?.name}</span>
+                            <span className="text-[11px] text-slate-500 block">{product?.category}</span>
                           </TableCell>
-                          <TableCell className="text-slate-500">
-                            {count.warehouseQuantityAtRequest} {product?.unit}
+                          <TableCell className="font-mono text-cyan-400 font-bold text-xs">
+                            #{product?.code || 'N/A'}
                           </TableCell>
-                          <TableCell>
-                            <Input 
-                              type="number" 
-                              placeholder="0" 
-                              className="h-8 bg-slate-50"
-                              id={`count-input-${count.id}`}
-                            />
+                          <TableCell className="text-xs text-slate-400 font-medium">
+                            {new Date(count.requestedAt).toLocaleDateString('pt-BR')}
                           </TableCell>
-                          <TableCell className="text-right">
+                          <TableCell className="text-center">
+                            <Badge variant="outline" className="border-slate-700 bg-slate-950 text-slate-300 font-bold text-xs">
+                              {count.warehouseQuantityAtRequest} {product?.unit || 'un'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <div className="flex items-center justify-center">
+                              <Input 
+                                type="number" 
+                                placeholder="0" 
+                                className="h-9 w-28 bg-slate-950 border-slate-700 text-center font-bold text-white text-xs rounded-lg focus:border-cyan-500"
+                                id={`count-input-${count.id}`}
+                              />
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right pr-6">
                             <Button 
                               size="sm"
-                              className="bg-brand-600 hover:bg-brand-700 h-8"
+                              className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold h-9 px-4 rounded-lg shadow-md transition-all text-xs"
                               onClick={() => {
                                 const input = document.getElementById(`count-input-${count.id}`) as HTMLInputElement;
                                 if (input && input.value !== '') {
                                   completeInventoryCount(count.id, Number(input.value));
-                                  toast.success('Contagem finalizada!');
+                                  toast.success(`Contagem de "${product?.name}" finalizada com sucesso!`);
                                 } else {
-                                  toast.error('Informe a quantidade.');
+                                  toast.error('Informe a quantidade contada no estoque.');
                                 }
                               }}
                             >
-                              Confirmar
+                              <CheckCircle2 size={14} className="mr-1.5" /> Confirmar
                             </Button>
                           </TableCell>
                         </TableRow>
@@ -1489,10 +1537,11 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                     })}
                     {pendingCounts.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center py-12 text-slate-400">
-                          <div className="flex flex-col items-center gap-2">
-                            <ClipboardList size={32} className="text-slate-200" />
-                            <p>Nenhuma solicitação de contagem pendente.</p>
+                        <TableCell colSpan={6} className="text-center py-16 text-slate-500 font-medium">
+                          <div className="flex flex-col items-center gap-3">
+                            <ClipboardList size={40} className="text-slate-700" />
+                            <p className="text-base text-slate-300 font-bold">Nenhuma solicitação de contagem pendente no momento.</p>
+                            <p className="text-xs text-slate-500">As solicitações emitidas pelo setor administrativo aparecerão aqui para conferência física.</p>
                           </div>
                         </TableCell>
                       </TableRow>

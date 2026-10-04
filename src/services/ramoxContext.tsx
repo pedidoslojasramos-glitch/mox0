@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { mockDb, isRecordDeleted } from './mockDb';
 import { Product, Supplier, PurchaseOrder, Branch, BranchOrder, User, UserRole, Distribution, DistributionType, BranchLimits, DeliveryRoute } from '../types';
+import { DEFAULT_LOJAS_RAMOS_LOGO } from '../utils/lojasRamosLogos';
 import { getSupabase } from '../lib/supabase';
 import { toast } from 'sonner';
 
@@ -41,136 +42,44 @@ export function toValidUUID(id: string): string {
   return `${strHex.slice(0,8)}-${strHex.slice(8,12)}-4${strHex.slice(13,16)}-8${strHex.slice(17,20)}-${strHex.slice(20,32)}`;
 }
 
-const DELETED_KEY = 'ramox_deleted_ids_v1';
-
+// No client-side local caching of deleted/cancelled IDs - database is the single source of truth
 export function getDeletedIds(): Set<string> {
-  try {
-    if (typeof window === 'undefined') return new Set();
-    const raw = localStorage.getItem(DELETED_KEY);
-    if (raw) return new Set(JSON.parse(raw));
-  } catch (e) {}
   return new Set();
 }
 
-export function markAsDeleted(...ids: (string | undefined | null)[]) {
-  try {
-    if (typeof window === 'undefined') return;
-    const set = getDeletedIds();
-    ids.forEach(id => {
-      if (id) {
-        const str = id.toString().trim();
-        if (str) {
-          set.add(str.toLowerCase());
-          const uuid = toValidUUID(str);
-          if (uuid) set.add(uuid.toLowerCase());
-        }
-      }
-    });
-    localStorage.setItem(DELETED_KEY, JSON.stringify(Array.from(set)));
-  } catch (e) {}
+export function markAsDeleted(..._ids: (string | undefined | null)[]) {
+  // Database-authoritative deletion - no local machine state
 }
 
-export function unmarkAsDeleted(...ids: (string | undefined | null)[]) {
-  try {
-    if (typeof window === 'undefined') return;
-    const set = getDeletedIds();
-    ids.forEach(id => {
-      if (id) {
-        const str = id.toString().trim().toLowerCase();
-        if (str) {
-          set.delete(str);
-          const uuid = toValidUUID(str);
-          if (uuid) set.delete(uuid.toLowerCase());
-        }
-      }
-    });
-    localStorage.setItem(DELETED_KEY, JSON.stringify(Array.from(set)));
-  } catch (e) {}
+export function unmarkAsDeleted(..._ids: (string | undefined | null)[]) {
+  // No-op
 }
 
-export function isDeleted(id: string | undefined | null): boolean {
-  if (!id) return false;
-  if (isRecordDeleted(id)) return true;
-  const set = getDeletedIds();
-  const clean = id.toString().trim().toLowerCase();
-  if (set.has(clean)) return true;
-  const uuid = toValidUUID(id.toString()).toLowerCase();
-  return set.has(uuid);
+export function isDeleted(_id: string | undefined | null): boolean {
+  return false;
 }
-
-const CANCELLED_ORDERS_KEY = 'ramox_cancelled_orders_v1';
-const CANCELLED_DIST_BRANCHES_KEY = 'ramox_cancelled_dist_branches_v1';
 
 export function getCancelledOrderIds(): Set<string> {
-  try {
-    if (typeof window === 'undefined') return new Set();
-    const raw = localStorage.getItem(CANCELLED_ORDERS_KEY);
-    return raw ? new Set(JSON.parse(raw)) : new Set();
-  } catch (e) {
-    return new Set();
-  }
+  return new Set();
 }
 
-export function markAsCancelled(...ids: (string | undefined | null)[]) {
-  try {
-    if (typeof window === 'undefined') return;
-    const set = getCancelledOrderIds();
-    ids.forEach(id => {
-      if (id) {
-        const str = id.toString().trim().toLowerCase();
-        if (str) {
-          set.add(str);
-          const uuid = toValidUUID(str);
-          if (uuid) set.add(uuid.toLowerCase());
-        }
-      }
-    });
-    localStorage.setItem(CANCELLED_ORDERS_KEY, JSON.stringify(Array.from(set)));
-  } catch (e) {}
+export function markAsCancelled(..._ids: (string | undefined | null)[]) {
+  // Status is persisted directly to Supabase status = 'rejected'
 }
 
-export function isOrderCancelled(id: string | undefined | null): boolean {
-  if (!id) return false;
-  const set = getCancelledOrderIds();
-  const clean = id.toString().trim().toLowerCase();
-  if (set.has(clean)) return true;
-  const uuid = toValidUUID(id.toString()).toLowerCase();
-  return set.has(uuid);
+export function isOrderCancelled(_id: string | undefined | null): boolean {
+  return false;
 }
 
 export function getCancelledDistBranches(): Set<string> {
-  try {
-    if (typeof window === 'undefined') return new Set();
-    const raw = localStorage.getItem(CANCELLED_DIST_BRANCHES_KEY);
-    return raw ? new Set(JSON.parse(raw)) : new Set();
-  } catch (e) {
-    return new Set();
-  }
+  return new Set();
 }
 
-export function markDistBranchCancelled(distId?: string, branchId?: string) {
-  try {
-    if (typeof window === 'undefined' || !distId || !branchId) return;
-    const set = getCancelledDistBranches();
-    const cleanDist = distId.toString().trim().toLowerCase();
-    const cleanBranch = branchId.toString().trim().toLowerCase();
-    set.add(`${cleanDist}_${cleanBranch}`);
-    const branchUuid = toValidUUID(cleanBranch).toLowerCase();
-    if (branchUuid) {
-      set.add(`${cleanDist}_${branchUuid}`);
-    }
-    localStorage.setItem(CANCELLED_DIST_BRANCHES_KEY, JSON.stringify(Array.from(set)));
-  } catch (e) {}
+export function markDistBranchCancelled(_distId?: string, _branchId?: string) {
+  // No-op
 }
 
-export function isDistBranchCancelled(distId?: string, branchId?: string): boolean {
-  if (!distId || !branchId) return false;
-  const set = getCancelledDistBranches();
-  const cleanDist = distId.toString().trim().toLowerCase();
-  const cleanBranch = branchId.toString().trim().toLowerCase();
-  if (set.has(`${cleanDist}_${cleanBranch}`)) return true;
-  const branchUuid = toValidUUID(cleanBranch).toLowerCase();
-  if (branchUuid && set.has(`${cleanDist}_${branchUuid}`)) return true;
+export function isDistBranchCancelled(_distId?: string, _branchId?: string): boolean {
   return false;
 }
 
@@ -208,173 +117,7 @@ export function findProductHelper(products: Product[], productIdOrCode?: string)
 }
 
 export function reconcileDistributionOrders(currentState: any): any {
-  if (!currentState || !Array.isArray(currentState.distributions) || currentState.distributions.length === 0) {
-    return currentState;
-  }
-
-  const products: Product[] = currentState.products || [];
-  const branches: Branch[] = currentState.branches || [];
-  let branchOrders: BranchOrder[] = Array.isArray(currentState.branchOrders) ? [...currentState.branchOrders] : [];
-  let hasChanges = false;
-
-  const getCanonicalBranch = (bId: string): Branch | undefined => {
-    if (!bId) return undefined;
-    const clean = bId.toString().trim().toLowerCase();
-    return branches.find(b => 
-      b.id.toLowerCase() === clean || 
-      toValidUUID(b.id) === toValidUUID(bId) ||
-      b.name.toLowerCase() === clean ||
-      (b.code && b.code.toLowerCase() === clean)
-    );
-  };
-
-  currentState.distributions.forEach((dist: Distribution) => {
-    if (!dist || !Array.isArray(dist.items)) return;
-
-    // Map: canonicalBranchId -> Map<canonicalProductId, quantity>
-    const branchExpectedItems = new Map<string, Map<string, number>>();
-
-    dist.items.forEach(item => {
-      if (!item || !Array.isArray(item.quantityPerBranch)) return;
-      const prod = findProductHelper(products, item.productId);
-      const canonicalProdId = prod ? prod.id : item.productId;
-
-      item.quantityPerBranch.forEach(q => {
-        if (!q || !q.quantity || Number(q.quantity) <= 0) return;
-        const branch = getCanonicalBranch(q.branchId);
-        const canonicalBId = branch ? branch.id : q.branchId;
-
-        if (!branchExpectedItems.has(canonicalBId)) {
-          branchExpectedItems.set(canonicalBId, new Map<string, number>());
-        }
-        const pMap = branchExpectedItems.get(canonicalBId)!;
-        pMap.set(canonicalProdId, (pMap.get(canonicalProdId) || 0) + Number(q.quantity));
-      });
-    });
-
-    branchExpectedItems.forEach((expectedProdMap, canonicalBranchId) => {
-      const branch = getCanonicalBranch(canonicalBranchId);
-      const distIdClean = (dist.id || '').toUpperCase();
-
-      // If this distribution for this branch was explicitly cancelled or deleted, never recreate or reactivate it!
-      if (isDistBranchCancelled(dist.id, canonicalBranchId)) {
-        return;
-      }
-
-      // Find existing order for this branch that came from this distribution
-      const orderIndex = branchOrders.findIndex(o => {
-        if (!o) return false;
-        const matchesBranch = o.branchId === canonicalBranchId || 
-                              toValidUUID(o.branchId) === toValidUUID(canonicalBranchId) ||
-                              (branch && o.branchId === branch.id);
-        if (!matchesBranch) return false;
-
-        const hasDistTag = (o.notes && distIdClean && o.notes.toUpperCase().includes(distIdClean)) ||
-                           (o.notes && o.notes.toLowerCase().includes('distribuição')) ||
-                           (o.approvedBy && o.approvedBy.toLowerCase().includes('distribuição'));
-
-        return hasDistTag;
-      });
-
-      if (orderIndex >= 0) {
-        const existingOrder = branchOrders[orderIndex];
-
-        // If existing order was cancelled (rejected) or marked deleted, honor the cancellation!
-        if (existingOrder.status === 'rejected' || isOrderCancelled(existingOrder.id) || isDeleted(existingOrder.id)) {
-          markDistBranchCancelled(dist.id, canonicalBranchId);
-          if (existingOrder.status !== 'rejected') {
-            branchOrders[orderIndex] = { ...existingOrder, status: 'rejected' };
-            hasChanges = true;
-          }
-          return;
-        }
-
-        const currentItemsMap = new Map<string, number>();
-
-        (existingOrder.items || []).forEach(it => {
-          if (!it) return;
-          const p = findProductHelper(products, it.productId);
-          const pId = p ? p.id : it.productId;
-          currentItemsMap.set(pId, (currentItemsMap.get(pId) || 0) + (Number(it.quantity) || 0));
-        });
-
-        let orderModified = false;
-        expectedProdMap.forEach((expQty, pId) => {
-          const curQty = currentItemsMap.get(pId) || 0;
-          if (curQty < expQty) {
-            currentItemsMap.set(pId, expQty);
-            orderModified = true;
-          }
-        });
-
-        if (orderModified) {
-          const newItems: { productId: string; quantity: number }[] = [];
-          currentItemsMap.forEach((quantity, productId) => {
-            newItems.push({ productId, quantity });
-          });
-          const totalValue = newItems.reduce((acc, it) => {
-            const prod = findProductHelper(products, it.productId);
-            return acc + (prod ? prod.price * it.quantity : 0);
-          }, 0);
-
-          branchOrders[orderIndex] = {
-            ...existingOrder,
-            items: newItems,
-            totalValue: totalValue > 0 ? totalValue : existingOrder.totalValue,
-            orderType: dist.type === 'epi' ? 'epi' : 'distribution',
-            notes: existingOrder.notes || (dist.type === 'epi' ? `Distribuição de EPIs (Lote #${distIdClean})` : `Distribuição em Massa (Lote #${distIdClean})`)
-          };
-          hasChanges = true;
-        }
-      } else {
-        // If this distribution for this branch was previously cancelled or marked deleted, DO NOT recreate it!
-        if (isDistBranchCancelled(dist.id, canonicalBranchId)) {
-          return;
-        }
-
-        // Missing order for this branch from this distribution! Restore it so it appears in the separation panel
-        const newOrderId = Math.random().toString(36).substr(2, 9);
-        const branchItems: { productId: string; quantity: number }[] = [];
-        expectedProdMap.forEach((quantity, productId) => {
-          branchItems.push({ productId, quantity });
-        });
-
-        const totalValue = branchItems.reduce((acc, it) => {
-          const prod = findProductHelper(products, it.productId);
-          return acc + (prod ? prod.price * it.quantity : 0);
-        }, 0);
-
-        const recipient = dist.recipients?.[canonicalBranchId] || 
-                          dist.recipients?.[toValidUUID(canonicalBranchId)] || 
-                          branch?.manager || 
-                          undefined;
-
-        branchOrders.push({
-          id: newOrderId,
-          branchId: canonicalBranchId,
-          items: branchItems,
-          status: 'approved',
-          totalValue,
-          createdAt: dist.createdAt || new Date().toISOString(),
-          approvedBy: dist.type === 'epi' ? 'Distribuição de EPIs' : 'Distribuição Central (Em Lote)',
-          approvedAt: dist.createdAt || new Date().toISOString(),
-          notes: dist.type === 'epi'
-            ? `Distribuição de EPIs (Lote #${distIdClean})`
-            : `Distribuição em Massa (Lote #${distIdClean})`,
-          recipientName: recipient,
-          orderType: dist.type === 'epi' ? 'epi' : 'distribution'
-        });
-        hasChanges = true;
-      }
-    });
-  });
-
-  if (hasChanges) {
-    const updated = { ...currentState, branchOrders };
-    mockDb.save(updated);
-    return updated;
-  }
-
+  // State is loaded authoritatively from Supabase
   return currentState;
 }
 
@@ -384,17 +127,16 @@ export function useRamox() {
   const isInitialLoadCompleteRef = useRef(false);
 
   const refreshData = async () => {
-    // 1. Re-sync from localStorage / mockDb immediately with reconciliation
-    const freshLocal = reconcileDistributionOrders(mockDb.get());
-    setState(prev => ({
-      ...prev,
-      ...freshLocal,
-      currentUser: prev.currentUser || freshLocal.currentUser
-    }));
-
-    // 2. Fetch from Supabase if client is connected
     const client = getSupabase();
-    if (!client) return;
+    if (!client) {
+      const freshLocal = reconcileDistributionOrders(mockDb.get());
+      setState(prev => ({
+        ...prev,
+        ...freshLocal,
+        currentUser: prev.currentUser || freshLocal.currentUser
+      }));
+      return;
+    }
 
     try {
       const [
@@ -403,14 +145,22 @@ export function useRamox() {
         { data: dbProducts, error: errProducts },
         { data: dbUsers, error: errUsers },
         { data: dbBranchOrders, error: errOrders },
-        { data: dbPurchaseOrders, error: errPO }
+        { data: dbPurchaseOrders, error: errPO },
+        { data: dbDistributions, error: errDist },
+        { data: dbInventoryCounts, error: errCounts },
+        { data: dbLimits, error: errLimits },
+        { data: dbSettings, error: errSettings }
       ] = await Promise.all([
         client.from('branches').select('*'),
         client.from('suppliers').select('*'),
         client.from('products').select('*'),
         client.from('users').select('*'),
         client.from('branch_orders').select('*'),
-        client.from('purchase_orders').select('*')
+        client.from('purchase_orders').select('*'),
+        client.from('distributions').select('*'),
+        client.from('inventory_counts').select('*'),
+        client.from('branch_limits').select('*'),
+        client.from('app_settings').select('*')
       ]);
 
       if (errUsers) console.warn('Supabase fetch users error:', errUsers);
@@ -419,25 +169,19 @@ export function useRamox() {
         let updated = { ...prev };
 
         if (!errBranches && Array.isArray(dbBranches)) {
-          const mappedBranches = dbBranches
+          updated.branches = dbBranches
             .filter((b: any) => b && b.id && !isDeleted(b.id))
             .map((b: any) => ({
               id: b.id,
               name: b.name,
               location: b.location || '',
-              manager: b.manager || ''
+              manager: b.manager || '',
+              code: b.code || undefined
             }));
-
-          const localOnlyBranches = (prev.branches || []).filter(lb => 
-            lb && lb.id && !isDeleted(lb.id) &&
-            !mappedBranches.some(sb => sb.id === lb.id || toValidUUID(sb.id) === toValidUUID(lb.id) || sb.name.toLowerCase().trim() === lb.name.toLowerCase().trim())
-          );
-
-          updated.branches = [...mappedBranches, ...localOnlyBranches];
         }
 
         if (!errSuppliers && Array.isArray(dbSuppliers)) {
-          const mappedSuppliers = dbSuppliers
+          updated.suppliers = dbSuppliers
             .filter((s: any) => s && s.id && !isDeleted(s.id))
             .map((s: any) => ({
               id: s.id,
@@ -446,17 +190,10 @@ export function useRamox() {
               cnpj: s.cnpj || '',
               contact: s.contact || ''
             }));
-
-          const localOnlySuppliers = (prev.suppliers || []).filter(ls => 
-            ls && ls.id && !isDeleted(ls.id) &&
-            !mappedSuppliers.some(ss => ss.id === ls.id || toValidUUID(ss.id) === toValidUUID(ls.id) || ss.code === ls.code)
-          );
-
-          updated.suppliers = [...mappedSuppliers, ...localOnlySuppliers];
         }
 
         if (!errProducts && Array.isArray(dbProducts)) {
-          const mappedProducts = dbProducts
+          updated.products = dbProducts
             .filter((p: any) => p && p.id && !isDeleted(p.id))
             .map((p: any) => ({
               id: p.id,
@@ -469,13 +206,6 @@ export function useRamox() {
               minStock: p.min_stock ?? p.minStock ?? 0,
               image: p.image || ''
             }));
-
-          const localOnlyProducts = (prev.products || []).filter(lp => 
-            lp && lp.id && !isDeleted(lp.id) &&
-            !mappedProducts.some(sp => sp.id === lp.id || toValidUUID(sp.id) === toValidUUID(lp.id) || sp.code === lp.code)
-          );
-
-          updated.products = [...mappedProducts, ...localOnlyProducts];
         }
 
         if (!errUsers && Array.isArray(dbUsers)) {
@@ -510,36 +240,24 @@ export function useRamox() {
               };
             });
 
-          const localOnlyUsers = (prev.users || []).filter(lu => 
-            lu && lu.id && !isDeleted(lu.id) &&
-            !mappedUsers.some(su => 
-              su.id === lu.id || 
-              toValidUUID(su.id) === toValidUUID(lu.id) || 
-              (su.email && lu.email && su.email.toLowerCase().trim() === lu.email.toLowerCase().trim())
-            )
-          );
-
-          const mergedUsers = [...mappedUsers, ...localOnlyUsers];
-
-          if (!mergedUsers.some(u => u && u.email && u.email.toLowerCase().trim() === 'admin@ramox.com')) {
-            const existingMaster = prev.users?.find(u => u && u.email && u.email.toLowerCase().trim() === 'admin@ramox.com');
-            mergedUsers.unshift(existingMaster || {
+          if (!mappedUsers.some(u => u && u.email && u.email.toLowerCase().trim() === 'admin@ramox.com')) {
+            mappedUsers.unshift({
               id: '1',
               name: 'Admin Master',
               email: 'admin@ramox.com',
               password: '123',
-              role: 'admin'
+              role: 'admin',
+              branchId: undefined
             });
           }
 
-          updated.users = mergedUsers;
+          updated.users = mappedUsers;
         }
 
         if (!errOrders && Array.isArray(dbBranchOrders)) {
-          const mappedOrders = dbBranchOrders
-            .filter((o: any) => o && !isDeleted(o.id))
+          const mappedOrders: BranchOrder[] = dbBranchOrders
+            .filter((o: any) => o && o.id)
             .map((o: any) => {
-              // Try to map UUID branchId back to canonical branch ID if found in updated.branches
               const matchingBranch = updated.branches.find(b => 
                 b.id === o.branch_id || 
                 toValidUUID(b.id) === toValidUUID(o.branch_id) || 
@@ -548,7 +266,6 @@ export function useRamox() {
               );
               const branchId = matchingBranch ? matchingBranch.id : (o.branch_id || o.branchId);
 
-              // Parse items if string
               let rawItems = o.items;
               if (typeof rawItems === 'string') {
                 try {
@@ -558,13 +275,31 @@ export function useRamox() {
                 }
               }
 
-              const safeItems = Array.isArray(rawItems) ? rawItems.map((it: any) => {
-                const prod = findProductHelper(updated.products, it.productId);
-                return {
-                  productId: prod ? prod.id : it.productId,
-                  quantity: Number(it.quantity) || 0
-                };
-              }) : [];
+              let safeItems: { productId: string; quantity: number }[] = [];
+              let orderNotes = o.notes;
+              let orderRecipient = o.recipient_name || o.recipientName;
+              let orderType = o.order_type || o.orderType;
+
+              if (rawItems && typeof rawItems === 'object' && !Array.isArray(rawItems) && Array.isArray(rawItems.orderItems)) {
+                safeItems = rawItems.orderItems.map((it: any) => {
+                  const prod = findProductHelper(updated.products, it.productId);
+                  return {
+                    productId: prod ? prod.id : it.productId,
+                    quantity: Number(it.quantity) || 0
+                  };
+                });
+                if (!orderNotes && rawItems.notes) orderNotes = rawItems.notes;
+                if (!orderRecipient && rawItems.recipientName) orderRecipient = rawItems.recipientName;
+                if (!orderType && rawItems.orderType) orderType = rawItems.orderType;
+              } else if (Array.isArray(rawItems)) {
+                safeItems = rawItems.map((it: any) => {
+                  const prod = findProductHelper(updated.products, it.productId);
+                  return {
+                    productId: prod ? prod.id : it.productId,
+                    quantity: Number(it.quantity) || 0
+                  };
+                });
+              }
 
               return {
                 id: o.id,
@@ -575,187 +310,156 @@ export function useRamox() {
                 createdAt: o.created_at || o.createdAt,
                 approvedBy: o.approved_by || o.approvedBy || undefined,
                 approvedAt: o.approved_at || o.approvedAt || undefined,
-                notes: o.notes || undefined,
-                recipientName: o.recipient_name || o.recipientName || undefined,
-                orderType: o.order_type || o.orderType || undefined
+                notes: orderNotes || undefined,
+                recipientName: orderRecipient || undefined,
+                orderType: orderType || undefined
               };
             });
 
-          const localOnlyOrders = (prev.branchOrders || []).filter(lo => 
-            lo && !isDeleted(lo.id) &&
-            !mappedOrders.some(so => so.id === lo.id || toValidUUID(so.id) === toValidUUID(lo.id))
-          );
-
-          // If local orders have advanced operational statuses (e.g. approved, picking, loading), do not regress them
-          const operationalStatusOrder = ['pending', 'discrepancy', 'approved', 'picking', 'picked', 'invoiced', 'loading', 'shipped', 'delivered', 'rejected'];
-          const mergedOrders = mappedOrders.map(so => {
-            const localMatch = (prev.branchOrders || []).find(lo => 
-              lo.id === so.id || 
-              toValidUUID(lo.id) === toValidUUID(so.id) ||
-              lo.id.toLowerCase().trim() === so.id.toLowerCase().trim()
-            );
-            if (localMatch) {
-              // Critical: If local was rejected (cancelled) OR remote was rejected OR order is cancelled in storage, status MUST remain 'rejected'!
-              let preferredStatus: BranchOrder['status'] = so.status;
-              if (
-                localMatch.status === 'rejected' ||
-                so.status === 'rejected' ||
-                isOrderCancelled(localMatch.id) ||
-                isOrderCancelled(so.id)
-              ) {
-                preferredStatus = 'rejected';
-              } else {
-                const localIndex = operationalStatusOrder.indexOf(localMatch.status);
-                const remoteIndex = operationalStatusOrder.indexOf(so.status);
-                preferredStatus = (localIndex > remoteIndex) ? localMatch.status : so.status;
-              }
-
-              // If localMatch has items and remote has fewer/empty items, preserve localMatch items so separation is complete
-              const preferredItems = (localMatch.items && localMatch.items.length >= (so.items?.length || 0))
-                ? localMatch.items
-                : so.items;
-
-              return {
-                ...so,
-                ...localMatch,
-                status: preferredStatus,
-                items: preferredItems,
-                approvedBy: localMatch.approvedBy || so.approvedBy,
-                approvedAt: localMatch.approvedAt || so.approvedAt,
-                notes: localMatch.notes || so.notes,
-                recipientName: localMatch.recipientName || so.recipientName,
-                orderType: localMatch.orderType || so.orderType
-              };
-            }
-            return so;
-          });
-
-          updated.branchOrders = [...mergedOrders, ...localOnlyOrders];
+          updated.branchOrders = mappedOrders;
         }
 
         if (!errPO && Array.isArray(dbPurchaseOrders)) {
-          const mappedPOs = dbPurchaseOrders
-            .filter((po: any) => po && !isDeleted(po.id))
-            .map((po: any) => ({
-              id: po.id,
-              supplierId: po.supplier_id || po.supplierId,
-              status: po.status,
-              totalValue: Number(po.total_value ?? po.totalValue) || 0,
-              items: po.items || [],
-              createdAt: po.created_at || po.createdAt
-            }));
-
-          const localOnlyPOs = (prev.purchaseOrders || []).filter(lpo => 
-            lpo && !isDeleted(lpo.id) &&
-            !mappedPOs.some(spo => spo.id === lpo.id || toValidUUID(spo.id) === toValidUUID(lpo.id))
-          );
-
-          updated.purchaseOrders = [...mappedPOs, ...localOnlyPOs];
+          updated.purchaseOrders = dbPurchaseOrders
+            .filter((po: any) => po && po.id)
+            .map((po: any) => {
+              let parsedItems = po.items;
+              if (typeof parsedItems === 'string') {
+                try { parsedItems = JSON.parse(parsedItems); } catch (e) { parsedItems = []; }
+              }
+              return {
+                id: po.id,
+                supplierId: po.supplier_id || po.supplierId,
+                status: po.status,
+                totalValue: Number(po.total_value ?? po.totalValue) || 0,
+                items: Array.isArray(parsedItems) ? parsedItems : [],
+                createdAt: po.created_at || po.createdAt
+              };
+            });
         }
 
-        const reconciled = reconcileDistributionOrders(updated);
-        mockDb.save(reconciled);
-        return reconciled;
+        if (!errDist && Array.isArray(dbDistributions)) {
+          updated.distributions = dbDistributions
+            .filter((d: any) => d && d.id)
+            .map((d: any) => {
+              let parsedItems = d.items;
+              if (typeof parsedItems === 'string') {
+                try { parsedItems = JSON.parse(parsedItems); } catch (e) { parsedItems = []; }
+              }
+              if (parsedItems && typeof parsedItems === 'object' && !Array.isArray(parsedItems) && Array.isArray(parsedItems.items)) {
+                return {
+                  id: d.id,
+                  type: parsedItems.type || 'general',
+                  recipients: parsedItems.recipients || {},
+                  items: parsedItems.items,
+                  createdAt: d.created_at
+                };
+              }
+              return {
+                id: d.id,
+                type: 'general',
+                items: Array.isArray(parsedItems) ? parsedItems : [],
+                createdAt: d.created_at
+              };
+            });
+        }
+
+        if (!errCounts && Array.isArray(dbInventoryCounts)) {
+          updated.inventoryCounts = dbInventoryCounts
+            .filter((c: any) => c && c.id)
+            .map((c: any) => ({
+              id: c.id,
+              productId: c.product_id,
+              requestedAt: c.requested_at,
+              status: c.status,
+              countedQuantity: c.counted_quantity !== null && c.counted_quantity !== undefined ? Number(c.counted_quantity) : undefined,
+              warehouseQuantityAtRequest: Number(c.warehouse_quantity_at_request) || 0
+            }));
+        }
+
+        if (!errLimits && Array.isArray(dbLimits)) {
+          updated.branchLimits = dbLimits.map((l: any) => ({
+            branchId: l.branch_id,
+            maxOrderBudget: Number(l.max_order_budget) || 0,
+            productMonthlyLimits: l.product_monthly_limits || {}
+          }));
+        }
+
+        if (!errSettings && Array.isArray(dbSettings)) {
+          const companyRow = dbSettings.find((s: any) => s.key === 'company_settings');
+          if (companyRow && companyRow.value && typeof companyRow.value === 'object') {
+            updated.settings = {
+              companyLogo: companyRow.value.companyLogo || prev.settings?.companyLogo || DEFAULT_LOJAS_RAMOS_LOGO,
+              vignetteEnabled: companyRow.value.vignetteEnabled !== false,
+              vignetteWords: Array.isArray(companyRow.value.vignetteWords) ? companyRow.value.vignetteWords : (prev.settings?.vignetteWords || ['Agilidade', 'Precisão', 'Controle'])
+            };
+          }
+
+          const classRow = dbSettings.find((s: any) => s.key === 'product_classifications');
+          if (classRow && Array.isArray(classRow.value)) {
+            updated.productClassifications = classRow.value;
+          }
+
+          const routesRow = dbSettings.find((s: any) => s.key === 'delivery_routes');
+          if (routesRow && Array.isArray(routesRow.value)) {
+            updated.deliveryRoutes = routesRow.value;
+          }
+        }
+
+        return updated;
       });
     } catch (e) {
-      console.warn('Erro ao carregar dados do Supabase:', e);
+      console.warn('Erro ao sincronizar dados com o Supabase:', e);
     } finally {
       isInitialLoadCompleteRef.current = true;
     }
   };
 
-  // Initial fetch from Supabase if connected
+  // 1. Initial fetch from database
   useEffect(() => {
     refreshData();
   }, []);
 
-  // Save to local storage & sync to Supabase on state change with debounce
+  // 2. Realtime subscription + Polling Heartbeat (every 3.5 seconds) for 100% synchronization across all users
   useEffect(() => {
-    mockDb.save(state);
+    const heartbeat = setInterval(() => {
+      refreshData();
+    }, 3500);
 
-    if (!isInitialLoadCompleteRef.current) {
-      return;
-    }
+    const handleFocus = () => {
+      refreshData();
+    };
+
+    const handleRefreshReq = () => {
+      refreshData();
+    };
+
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('ramox-refresh-requested', handleRefreshReq);
 
     const client = getSupabase();
-    if (!client) return;
-
-    // Debounce background network syncing to avoid thread locking & high CPU/network contention
-    const timer = setTimeout(async () => {
+    let channel: any = null;
+    if (client) {
       try {
-        const validBranches = state.branches.filter(b => b && b.id && !isDeleted(b.id));
-        if (validBranches.length > 0) {
-          const payload = validBranches.map(b => ({
-            id: toValidUUID(b.id),
-            name: b.name,
-            location: b.location || '',
-            manager: b.manager || ''
-          }));
-          await client.from('branches').upsert(payload);
-        }
-
-        const validSuppliers = state.suppliers.filter(s => s && s.id && !isDeleted(s.id));
-        if (validSuppliers.length > 0) {
-          const payload = validSuppliers.map(s => ({
-            id: toValidUUID(s.id),
-            name: s.name,
-            code: s.code,
-            cnpj: s.cnpj || '',
-            contact: s.contact || ''
-          }));
-          await client.from('suppliers').upsert(payload);
-        }
-
-        const validProducts = state.products.filter(p => p && p.id && !isDeleted(p.id));
-        if (validProducts.length > 0) {
-          const payload = validProducts.map(p => ({
-            id: toValidUUID(p.id),
-            name: p.name,
-            code: p.code,
-            category: p.category,
-            unit: p.unit,
-            price: p.price,
-            current_stock: p.currentStock,
-            min_stock: p.minStock,
-            image: p.image || ''
-          }));
-          await client.from('products').upsert(payload);
-        }
-
-        const validOrders = state.branchOrders.filter(o => o && !isDeleted(o.id));
-        if (validOrders.length > 0) {
-          const payload = validOrders.map(o => ({
-            id: toValidUUID(o.id),
-            branch_id: toValidUUID(o.branchId),
-            status: o.status,
-            total_value: o.totalValue || 0,
-            items: o.items,
-            approved_by: o.approvedBy || null,
-            approved_at: o.approvedAt || null,
-            created_at: o.createdAt
-          }));
-          await client.from('branch_orders').upsert(payload);
-        }
-
-        const validPurchaseOrders = state.purchaseOrders.filter(po => po && !isDeleted(po.id));
-        if (validPurchaseOrders.length > 0) {
-          const payload = validPurchaseOrders.map(po => ({
-            id: toValidUUID(po.id),
-            supplier_id: toValidUUID(po.supplierId),
-            status: po.status,
-            total_value: po.totalValue || 0,
-            items: po.items,
-            created_at: po.createdAt
-          }));
-          await client.from('purchase_orders').upsert(payload);
-        }
-      } catch (err) {
-        console.warn('Falha na sincronização assíncrona com Supabase:', err);
+        channel = client.channel('ramox-realtime-db-sync')
+          .on('postgres_changes', { event: '*', schema: 'public' }, () => {
+            refreshData();
+          })
+          .subscribe();
+      } catch (e) {
+        console.warn('Erro ao subscrever canal Realtime:', e);
       }
-    }, 1200);
+    }
 
-    return () => clearTimeout(timer);
-  }, [state]);
+    return () => {
+      clearInterval(heartbeat);
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('ramox-refresh-requested', handleRefreshReq);
+      if (client && channel) {
+        client.removeChannel(channel);
+      }
+    };
+  }, []);
 
   const login = (email: string, password?: string) => {
     if (!email) return false;
@@ -854,12 +558,10 @@ export function useRamox() {
   // Products
   const addProduct = (product: Omit<Product, 'id'>) => {
     const newProduct = { ...product, id: Math.random().toString(36).substr(2, 9) };
-    unmarkAsDeleted(newProduct.id, toValidUUID(newProduct.id));
-    setState(prev => {
-      const updatedState = { ...prev, products: [...prev.products, newProduct] };
-      mockDb.save(updatedState);
-      return updatedState;
-    });
+    setState(prev => ({
+      ...prev,
+      products: [...prev.products, newProduct]
+    }));
 
     const client = getSupabase();
     if (client) {
@@ -877,6 +579,7 @@ export function useRamox() {
             image: newProduct.image || ''
           };
           await client.from('products').upsert(payload);
+          refreshData();
         } catch (e) {
           console.warn('Supabase addProduct err:', e);
         }
@@ -889,13 +592,11 @@ export function useRamox() {
       ...p,
       id: Math.random().toString(36).substr(2, 9)
     }));
-    createdProducts.forEach(p => unmarkAsDeleted(p.id, toValidUUID(p.id)));
 
-    setState(prev => {
-      const updatedState = { ...prev, products: [...prev.products, ...createdProducts] };
-      mockDb.save(updatedState);
-      return updatedState;
-    });
+    setState(prev => ({
+      ...prev,
+      products: [...prev.products, ...createdProducts]
+    }));
 
     const client = getSupabase();
     if (client) {
@@ -913,6 +614,7 @@ export function useRamox() {
             image: p.image || ''
           }));
           await client.from('products').upsert(payload);
+          refreshData();
         } catch (e) {
           console.warn('Supabase bulkAddProducts err:', e);
         }
@@ -924,19 +626,10 @@ export function useRamox() {
     const targetProduct = state.products.find(p => p.id === id || p.code === id || p.name === id);
     const targetId = toValidUUID(id);
 
-    markAsDeleted(id, targetId);
-    if (targetProduct) {
-      markAsDeleted(targetProduct.id, toValidUUID(targetProduct.id));
-    }
-
-    setState(prev => {
-      const updated = {
-        ...prev,
-        products: prev.products.filter(p => p.id !== id && p.id !== targetId && (targetProduct ? p.code !== targetProduct.code && p.name !== targetProduct.name : true))
-      };
-      mockDb.save(updated);
-      return updated;
-    });
+    setState(prev => ({
+      ...prev,
+      products: prev.products.filter(p => p.id !== id && p.id !== targetId && (targetProduct ? p.code !== targetProduct.code && p.name !== targetProduct.name : true))
+    }));
 
     const client = getSupabase();
     if (client) {
@@ -950,6 +643,7 @@ export function useRamox() {
           if (targetProduct?.name) {
             await client.from('products').delete().eq('name', targetProduct.name);
           }
+          refreshData();
         } catch (e) {
           console.warn('Supabase delete product err:', e);
         }
@@ -958,15 +652,10 @@ export function useRamox() {
   };
 
   const updateProduct = (id: string, updates: Partial<Product>) => {
-    unmarkAsDeleted(id, toValidUUID(id));
-    setState(prev => {
-      const updatedState = {
-        ...prev,
-        products: prev.products.map(p => p.id === id ? { ...p, ...updates } : p)
-      };
-      mockDb.save(updatedState);
-      return updatedState;
-    });
+    setState(prev => ({
+      ...prev,
+      products: prev.products.map(p => p.id === id ? { ...p, ...updates } : p)
+    }));
 
     const client = getSupabase();
     if (client) {
@@ -987,6 +676,7 @@ export function useRamox() {
               image: updated.image || ''
             };
             await client.from('products').upsert(payload);
+            refreshData();
           }
         } catch (e) {
           console.warn('Supabase updateProduct err:', e);
@@ -998,12 +688,10 @@ export function useRamox() {
   // Suppliers
   const addSupplier = (supplier: Omit<Supplier, 'id'>) => {
     const newSupplier = { ...supplier, id: Math.random().toString(36).substr(2, 9) };
-    unmarkAsDeleted(newSupplier.id, toValidUUID(newSupplier.id));
-    setState(prev => {
-      const updatedState = { ...prev, suppliers: [...prev.suppliers, newSupplier] };
-      mockDb.save(updatedState);
-      return updatedState;
-    });
+    setState(prev => ({
+      ...prev,
+      suppliers: [...prev.suppliers, newSupplier]
+    }));
 
     const client = getSupabase();
     if (client) {
@@ -1017,6 +705,7 @@ export function useRamox() {
             contact: newSupplier.contact || ''
           };
           await client.from('suppliers').upsert(payload);
+          refreshData();
         } catch (e) {
           console.warn('Supabase addSupplier err:', e);
         }
@@ -1028,19 +717,10 @@ export function useRamox() {
     const targetSupplier = state.suppliers.find(s => s.id === id || s.code === id || s.name === id);
     const targetId = toValidUUID(id);
 
-    markAsDeleted(id, targetId);
-    if (targetSupplier) {
-      markAsDeleted(targetSupplier.id, toValidUUID(targetSupplier.id));
-    }
-
-    setState(prev => {
-      const updated = {
-        ...prev,
-        suppliers: prev.suppliers.filter(s => s.id !== id && s.id !== targetId && (targetSupplier ? s.code !== targetSupplier.code && s.name !== targetSupplier.name : true))
-      };
-      mockDb.save(updated);
-      return updated;
-    });
+    setState(prev => ({
+      ...prev,
+      suppliers: prev.suppliers.filter(s => s.id !== id && s.id !== targetId && (targetSupplier ? s.code !== targetSupplier.code && s.name !== targetSupplier.name : true))
+    }));
 
     const client = getSupabase();
     if (client) {
@@ -1054,6 +734,7 @@ export function useRamox() {
           if (targetSupplier?.name) {
             await client.from('suppliers').delete().eq('name', targetSupplier.name);
           }
+          refreshData();
         } catch (e) {
           console.warn('Supabase delete supplier err:', e);
         }
@@ -1064,12 +745,13 @@ export function useRamox() {
   // Purchase Orders
   const createPurchaseOrder = (supplierId: string, items: { productId: string, quantity: number }[]) => {
     const totalValue = items.reduce((acc, item) => {
-      const product = state.products.find(p => p.id === item.productId);
+      const product = state.products.find(p => p.id === item.productId || toValidUUID(p.id) === toValidUUID(item.productId));
       return acc + (product ? product.price * item.quantity : 0);
     }, 0);
 
+    const newOrderId = crypto.randomUUID ? crypto.randomUUID() : toValidUUID(Math.random().toString(36).substr(2, 9));
     const newOrder: PurchaseOrder = {
-      id: Math.random().toString(36).substr(2, 9),
+      id: newOrderId,
       supplierId,
       items,
       status: 'pending',
@@ -1077,10 +759,31 @@ export function useRamox() {
       createdAt: new Date().toISOString()
     };
     setState(prev => ({ ...prev, purchaseOrders: [...prev.purchaseOrders, newOrder] }));
+
+    const client = getSupabase();
+    if (client) {
+      (async () => {
+        try {
+          await client.from('purchase_orders').upsert({
+            id: toValidUUID(newOrder.id),
+            supplier_id: toValidUUID(supplierId),
+            status: 'pending',
+            total_value: totalValue,
+            items: items,
+            created_at: newOrder.createdAt
+          });
+          refreshData();
+        } catch (e) {
+          console.warn('Supabase createPurchaseOrder err:', e);
+        }
+      })();
+    }
   };
 
   const updatePurchaseOrderStatus = (id: string, status: PurchaseOrder['status']) => {
     const targetUUID = toValidUUID(id);
+    let updatedProductsList: Product[] | null = null;
+    let targetPO: PurchaseOrder | null = null;
 
     setState(prev => {
       const order = prev.purchaseOrders.find(o => 
@@ -1089,14 +792,17 @@ export function useRamox() {
         (o.id && id && o.id.toLowerCase().trim() === id.toLowerCase().trim())
       );
       if (!order) return prev;
+      targetPO = order;
 
       let updatedProducts = prev.products;
       if (status === 'received' && order.status !== 'received') {
         updatedProducts = prev.products.map(p => {
-          const item = order.items.find(i => i.productId === p.id);
+          const item = order.items.find(i => i.productId === p.id || toValidUUID(i.productId) === toValidUUID(p.id));
           return item ? { ...p, currentStock: p.currentStock + item.quantity } : p;
         });
       }
+
+      updatedProductsList = updatedProducts;
 
       const updatedOrders = prev.purchaseOrders.map(o => 
         (o.id === order.id || o.id === id || toValidUUID(o.id) === targetUUID) 
@@ -1104,13 +810,11 @@ export function useRamox() {
           : o
       );
 
-      const newState = {
+      return {
         ...prev,
         products: updatedProducts,
         purchaseOrders: updatedOrders
       };
-      mockDb.save(newState);
-      return newState;
     });
 
     const client = getSupabase();
@@ -1121,6 +825,16 @@ export function useRamox() {
           if (error) {
             await client.from('purchase_orders').update({ status }).eq('id', id);
           }
+
+          if (status === 'received' && targetPO && updatedProductsList) {
+            for (const item of (targetPO as PurchaseOrder).items) {
+              const prod = (updatedProductsList as Product[]).find(p => p.id === item.productId || toValidUUID(p.id) === toValidUUID(item.productId));
+              if (prod) {
+                await client.from('products').update({ current_stock: prod.currentStock }).eq('id', toValidUUID(prod.id));
+              }
+            }
+          }
+          refreshData();
         } catch (e) {
           console.warn('Supabase update purchase order status err:', e);
         }
@@ -1215,6 +929,22 @@ export function useRamox() {
         branchLimits: updatedLimits
       };
     });
+
+    const client = getSupabase();
+    if (client) {
+      (async () => {
+        try {
+          await client.from('branch_limits').upsert({
+            branch_id: toValidUUID(branchId),
+            max_order_budget: maxOrderBudget,
+            product_monthly_limits: productMonthlyLimits
+          }, { onConflict: 'branch_id' });
+          refreshData();
+        } catch (e) {
+          console.warn('Supabase saveBranchLimits err:', e);
+        }
+      })();
+    }
   };
 
   const createBranchOrder = (branchId: string, items: { productId: string, quantity: number }[], status: BranchOrder['status'] = 'pending') => {
@@ -1267,15 +997,11 @@ export function useRamox() {
       });
     }
 
-    setState(prev => {
-      const updatedState = {
-        ...prev,
-        products: updatedProducts,
-        branchOrders: [...prev.branchOrders, newOrder]
-      };
-      mockDb.save(updatedState);
-      return updatedState;
-    });
+    setState(prev => ({
+      ...prev,
+      products: updatedProducts,
+      branchOrders: [...prev.branchOrders, newOrder]
+    }));
 
     const client = getSupabase();
     if (client) {
@@ -1294,12 +1020,13 @@ export function useRamox() {
 
           if (status !== 'rejected') {
             for (const item of items) {
-              const prod = updatedProducts.find(p => p.id === item.productId);
+              const prod = updatedProducts.find(p => p.id === item.productId || toValidUUID(p.id) === toValidUUID(item.productId));
               if (prod) {
                 await client.from('products').update({ current_stock: prod.currentStock }).eq('id', toValidUUID(prod.id));
               }
             }
           }
+          refreshData();
         } catch (e) {
           console.warn('Supabase createBranchOrder err:', e);
         }
@@ -1311,11 +1038,6 @@ export function useRamox() {
 
   const updateBranchOrderStatus = (id: string, status: BranchOrder['status'], approvedBy?: string) => {
     const targetUUID = toValidUUID(id);
-    if (status !== 'rejected') {
-      unmarkAsDeleted(id, targetUUID);
-    } else {
-      markAsCancelled(id, targetUUID);
-    }
 
     let updatedProductsList: Product[] | null = null;
     let affectedOrder: BranchOrder | null = null;
@@ -1331,13 +1053,6 @@ export function useRamox() {
       affectedOrder = targetOrder;
       const oldStatus = targetOrder.status;
 
-      if (status === 'rejected') {
-        const distId = extractDistIdFromOrder(targetOrder);
-        if (distId) {
-          markDistBranchCancelled(distId, targetOrder.branchId);
-        }
-      }
-
       const updateData: Partial<BranchOrder> = { status };
       if (status === 'approved' && approvedBy) {
         updateData.approvedBy = approvedBy;
@@ -1349,14 +1064,14 @@ export function useRamox() {
       // If transition is to 'rejected' (cancelled) from active status: return reserved stock to available stock!
       if (status === 'rejected' && oldStatus !== 'rejected') {
         updatedProducts = prev.products.map(p => {
-          const item = targetOrder.items.find(i => i.productId === p.id);
+          const item = targetOrder.items.find(i => i.productId === p.id || toValidUUID(i.productId) === toValidUUID(p.id));
           return item ? { ...p, currentStock: p.currentStock + item.quantity } : p;
         });
       }
       // If re-activated from 'rejected' to active status: deduct/reserve stock again
       else if (oldStatus === 'rejected' && status !== 'rejected') {
         updatedProducts = prev.products.map(p => {
-          const item = targetOrder.items.find(i => i.productId === p.id);
+          const item = targetOrder.items.find(i => i.productId === p.id || toValidUUID(i.productId) === toValidUUID(p.id));
           return item ? { ...p, currentStock: Math.max(0, p.currentStock - item.quantity) } : p;
         });
       }
@@ -1375,14 +1090,11 @@ export function useRamox() {
         return o;
       });
 
-      const newState = {
+      return {
         ...prev,
         products: updatedProducts,
         branchOrders: updatedOrders
       };
-
-      mockDb.save(newState);
-      return newState;
     });
 
     const client = getSupabase();
@@ -1401,12 +1113,13 @@ export function useRamox() {
 
           if (affectedOrder && updatedProductsList) {
             for (const item of (affectedOrder as BranchOrder).items) {
-              const prod = (updatedProductsList as Product[]).find(p => p.id === item.productId);
+              const prod = (updatedProductsList as Product[]).find(p => p.id === item.productId || toValidUUID(p.id) === toValidUUID(item.productId));
               if (prod) {
                 await client.from('products').update({ current_stock: prod.currentStock }).eq('id', toValidUUID(prod.id));
               }
             }
           }
+          refreshData();
         } catch (e) {
           console.warn('Supabase update branch order status err:', e);
         }
@@ -1416,11 +1129,6 @@ export function useRamox() {
 
   const batchUpdateBranchOrderStatus = (ids: string[], status: BranchOrder['status'], approvedBy?: string) => {
     if (!ids || ids.length === 0) return;
-    if (status !== 'rejected') {
-      ids.forEach(id => unmarkAsDeleted(id, toValidUUID(id)));
-    } else {
-      ids.forEach(id => markAsCancelled(id, toValidUUID(id)));
-    }
     const targetUUIDs = new Set(ids.map(id => toValidUUID(id)));
     const idSet = new Set(ids.map(id => id.toLowerCase().trim()));
 
@@ -1441,19 +1149,15 @@ export function useRamox() {
 
         // Adjust reserved stock if rejecting or reactivating
         if (status === 'rejected') {
-          const distId = extractDistIdFromOrder(o);
-          if (distId) {
-            markDistBranchCancelled(distId, o.branchId);
-          }
           if (oldStatus !== 'rejected') {
             updatedProducts = updatedProducts.map(p => {
-              const item = o.items.find(i => i.productId === p.id);
+              const item = o.items.find(i => i.productId === p.id || toValidUUID(i.productId) === toValidUUID(p.id));
               return item ? { ...p, currentStock: p.currentStock + item.quantity } : p;
             });
           }
         } else if ((oldStatus as string) === 'rejected' && (status as string) !== 'rejected') {
           updatedProducts = updatedProducts.map(p => {
-            const item = o.items.find(i => i.productId === p.id);
+            const item = o.items.find(i => i.productId === p.id || toValidUUID(i.productId) === toValidUUID(p.id));
             return item ? { ...p, currentStock: Math.max(0, p.currentStock - item.quantity) } : p;
           });
         }
@@ -1461,13 +1165,11 @@ export function useRamox() {
         return { ...o, ...updateData };
       });
 
-      const newState = {
+      return {
         ...prev,
         products: updatedProducts,
         branchOrders: updatedOrders
       };
-      mockDb.save(newState);
-      return newState;
     });
 
     const client = getSupabase();
@@ -1486,6 +1188,7 @@ export function useRamox() {
               client.from('branch_orders').update(updatePayload).eq('id', id)
             ]);
           }
+          refreshData();
         } catch (e) {
           console.warn('Supabase batch update branch orders err:', e);
         }
@@ -1494,10 +1197,7 @@ export function useRamox() {
   };
 
   const deleteBranchOrder = (id: string) => {
-    markAsDeleted(id);
     const targetId = toValidUUID(id);
-    markAsDeleted(targetId);
-    markAsCancelled(id, targetId);
 
     let updatedProductsList: Product[] | null = null;
     let deletedOrder: BranchOrder | null = null;
@@ -1507,30 +1207,21 @@ export function useRamox() {
       deletedOrder = targetOrder || null;
       let updatedProducts = prev.products;
 
-      if (targetOrder) {
-        const distId = extractDistIdFromOrder(targetOrder);
-        if (distId) {
-          markDistBranchCancelled(distId, targetOrder.branchId);
-        }
-      }
-
       if (targetOrder && targetOrder.status !== 'rejected') {
         // Return reserved stock
         updatedProducts = prev.products.map(p => {
-          const item = targetOrder.items.find(i => i.productId === p.id);
+          const item = targetOrder.items.find(i => i.productId === p.id || toValidUUID(i.productId) === toValidUUID(p.id));
           return item ? { ...p, currentStock: p.currentStock + item.quantity } : p;
         });
       }
 
       updatedProductsList = updatedProducts;
 
-      const updated = {
+      return {
         ...prev,
         products: updatedProducts,
-        branchOrders: prev.branchOrders.filter(o => o.id !== id && o.id !== targetId)
+        branchOrders: prev.branchOrders.filter(o => o.id !== id && toValidUUID(o.id) !== targetId)
       };
-      mockDb.save(updated);
-      return updated;
     });
 
     const client = getSupabase();
@@ -1539,7 +1230,7 @@ export function useRamox() {
         try {
           if (deletedOrder && (deletedOrder as BranchOrder).status !== 'rejected' && updatedProductsList) {
             for (const item of (deletedOrder as BranchOrder).items) {
-              const prod = (updatedProductsList as Product[]).find(p => p.id === item.productId);
+              const prod = (updatedProductsList as Product[]).find(p => p.id === item.productId || toValidUUID(p.id) === toValidUUID(item.productId));
               if (prod) {
                 await client.from('products').update({ current_stock: prod.currentStock }).eq('id', toValidUUID(prod.id));
               }
@@ -1549,6 +1240,7 @@ export function useRamox() {
             client.from('branch_orders').delete().eq('id', targetId),
             client.from('branch_orders').delete().eq('id', id)
           ]);
+          refreshData();
         } catch (e) {
           console.warn('Supabase delete branch order err:', e);
         }
@@ -1880,44 +1572,78 @@ export function useRamox() {
   };
 
   // Settings
-  const updateSettings = (settings: Partial<typeof state.settings>) => {
-    setState(prev => ({ ...prev, settings: { ...prev.settings, ...settings } }));
+  const updateSettings = (settingsUpdates: Partial<typeof state.settings>) => {
+    setState(prev => {
+      const updated = { ...prev.settings, ...settingsUpdates };
+      const client = getSupabase();
+      if (client) {
+        (async () => {
+          try {
+            await client.from('app_settings').upsert({
+              key: 'company_settings',
+              value: updated,
+              updated_at: new Date().toISOString()
+            }, { onConflict: 'key' });
+            refreshData();
+          } catch (e) {
+            console.warn('Supabase updateSettings err:', e);
+          }
+        })();
+      }
+      return { ...prev, settings: updated };
+    });
   };
 
   const addProductClassification = (name: string) => {
     if (!name || name.trim() === '') return;
-    setState(prev => {
-      const trimmed = name.trim();
-      const current = prev.productClassifications || [];
-      if (current.includes(trimmed)) return prev;
-      return {
-        ...prev,
-        productClassifications: [...current, trimmed]
-      };
-    });
-  };
+    const trimmed = name.trim();
+    const current = state.productClassifications || [];
+    if (current.includes(trimmed)) return;
+    const updated = [...current, trimmed];
 
-  const deleteProductClassification = (name: string) => {
-    markAsDeleted(name);
-
-    setState(prev => {
-      const current = prev.productClassifications || [];
-      const updated = {
-        ...prev,
-        productClassifications: current.filter(c => c !== name)
-      };
-      mockDb.save(updated);
-      return updated;
-    });
+    setState(prev => ({
+      ...prev,
+      productClassifications: updated
+    }));
 
     const client = getSupabase();
     if (client) {
       (async () => {
         try {
-          await client.from('product_classifications').delete().eq('name', name);
-          await client.from('categories').delete().eq('name', name);
+          await client.from('app_settings').upsert({
+            key: 'product_classifications',
+            value: updated,
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'key' });
+          refreshData();
         } catch (e) {
-          console.warn('Supabase delete classification err:', e);
+          console.warn('Supabase addProductClassification err:', e);
+        }
+      })();
+    }
+  };
+
+  const deleteProductClassification = (name: string) => {
+    const current = state.productClassifications || [];
+    const updated = current.filter(c => c !== name);
+
+    setState(prev => ({
+      ...prev,
+      productClassifications: updated
+    }));
+
+    const client = getSupabase();
+    if (client) {
+      (async () => {
+        try {
+          await client.from('app_settings').upsert({
+            key: 'product_classifications',
+            value: updated,
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'key' });
+          refreshData();
+        } catch (e) {
+          console.warn('Supabase deleteProductClassification err:', e);
         }
       })();
     }
@@ -1925,85 +1651,165 @@ export function useRamox() {
 
   // Inventory Counts
   const requestInventoryCount = (productId: string) => {
-    const product = state.products.find(p => p.id === productId);
+    const product = state.products.find(p => p.id === productId || toValidUUID(p.id) === toValidUUID(productId));
     if (!product) return;
 
-    const newCount: any = {
-      id: Math.random().toString(36).substr(2, 9),
-      productId,
-      requestedAt: new Date().toISOString(),
-      status: 'pending',
+    const newCountId = crypto.randomUUID ? crypto.randomUUID() : toValidUUID(Math.random().toString(36).substr(2, 9));
+    const nowIso = new Date().toISOString();
+    const newCount = {
+      id: newCountId,
+      productId: product.id,
+      requestedAt: nowIso,
+      status: 'pending' as const,
       warehouseQuantityAtRequest: product.currentStock
     };
 
     setState(prev => ({
       ...prev,
-      inventoryCounts: [...prev.inventoryCounts, newCount]
+      inventoryCounts: [
+        ...prev.inventoryCounts.filter(c => (c.productId !== product.id && toValidUUID(c.productId) !== toValidUUID(product.id)) || c.status !== 'pending'),
+        newCount
+      ]
     }));
+
+    const client = getSupabase();
+    if (client) {
+      (async () => {
+        try {
+          await client.from('inventory_counts').upsert({
+            id: toValidUUID(newCount.id),
+            product_id: toValidUUID(product.id),
+            requested_at: newCount.requestedAt,
+            status: 'pending',
+            warehouse_quantity_at_request: product.currentStock
+          });
+          refreshData();
+        } catch (e) {
+          console.warn('Supabase requestInventoryCount err:', e);
+        }
+      })();
+    }
   };
 
   const requestGeneralInventoryCount = () => {
-    setState(prev => {
-      const newCounts = prev.products.map(product => ({
-        id: Math.random().toString(36).substr(2, 9),
-        productId: product.id,
-        requestedAt: new Date().toISOString(),
-        status: 'pending',
-        warehouseQuantityAtRequest: product.currentStock
-      }));
+    const nowIso = new Date().toISOString();
+    const newCounts = state.products.map(product => ({
+      id: crypto.randomUUID ? crypto.randomUUID() : toValidUUID(Math.random().toString(36).substr(2, 9)),
+      productId: product.id,
+      requestedAt: nowIso,
+      status: 'pending' as const,
+      warehouseQuantityAtRequest: product.currentStock
+    }));
 
-      return {
-        ...prev,
-        inventoryCounts: [...prev.inventoryCounts, ...newCounts]
-      };
-    });
+    setState(prev => ({
+      ...prev,
+      inventoryCounts: [
+        ...prev.inventoryCounts.filter(c => c.status !== 'pending'),
+        ...newCounts
+      ]
+    }));
+
+    const client = getSupabase();
+    if (client) {
+      (async () => {
+        try {
+          const rows = newCounts.map(c => ({
+            id: toValidUUID(c.id),
+            product_id: toValidUUID(c.productId),
+            requested_at: c.requestedAt,
+            status: 'pending',
+            warehouse_quantity_at_request: c.warehouseQuantityAtRequest
+          }));
+          await client.from('inventory_counts').upsert(rows);
+          refreshData();
+        } catch (e) {
+          console.warn('Supabase requestGeneralInventoryCount err:', e);
+        }
+      })();
+    }
   };
 
   const completeInventoryCount = (countId: string, quantity: number) => {
-    setState(prev => {
-      const count = prev.inventoryCounts.find(c => c.id === countId);
-      if (!count) return prev;
+    const count = state.inventoryCounts.find(c => c.id === countId || toValidUUID(c.id) === toValidUUID(countId));
+    if (!count) return;
 
+    setState(prev => {
       const updatedProducts = prev.products.map(p => 
-        p.id === count.productId ? { ...p, currentStock: quantity } : p
+        (p.id === count.productId || toValidUUID(p.id) === toValidUUID(count.productId)) ? { ...p, currentStock: quantity } : p
       );
 
-      const updatedState = {
+      return {
         ...prev,
         products: updatedProducts,
         inventoryCounts: prev.inventoryCounts.map(c => 
-          c.id === countId ? { ...c, status: 'completed' as const, countedQuantity: quantity } : c
+          (c.id === countId || toValidUUID(c.id) === toValidUUID(countId)) 
+            ? { ...c, status: 'completed' as const, countedQuantity: quantity } 
+            : c
         )
       };
-      mockDb.save(updatedState);
-      return updatedState;
     });
+
+    const client = getSupabase();
+    if (client) {
+      (async () => {
+        try {
+          const targetCountId = toValidUUID(countId);
+          await Promise.allSettled([
+            client.from('inventory_counts').update({ status: 'completed', counted_quantity: quantity }).eq('id', targetCountId),
+            client.from('inventory_counts').update({ status: 'completed', counted_quantity: quantity }).eq('id', countId),
+            client.from('products').update({ current_stock: quantity }).eq('id', toValidUUID(count.productId)),
+            client.from('products').update({ current_stock: quantity }).eq('id', count.productId)
+          ]);
+          refreshData();
+        } catch (e) {
+          console.warn('Supabase completeInventoryCount err:', e);
+        }
+      })();
+    }
   };
 
   const cancelInventoryCount = (countId: string) => {
-    setState(prev => {
-      const updatedState = {
-        ...prev,
-        inventoryCounts: prev.inventoryCounts.map(c => 
-          c.id === countId ? { ...c, status: 'cancelled' as const } : c
-        )
-      };
-      mockDb.save(updatedState);
-      return updatedState;
-    });
+    setState(prev => ({
+      ...prev,
+      inventoryCounts: prev.inventoryCounts.filter(c => 
+        c.id !== countId && toValidUUID(c.id) !== toValidUUID(countId)
+      )
+    }));
+
+    const client = getSupabase();
+    if (client) {
+      (async () => {
+        try {
+          const targetCountId = toValidUUID(countId);
+          await Promise.allSettled([
+            client.from('inventory_counts').delete().eq('id', targetCountId),
+            client.from('inventory_counts').delete().eq('id', countId)
+          ]);
+          refreshData();
+        } catch (e) {
+          console.warn('Supabase cancelInventoryCount err:', e);
+        }
+      })();
+    }
   };
 
   const cancelAllPendingInventoryCounts = () => {
-    setState(prev => {
-      const updatedState = {
-        ...prev,
-        inventoryCounts: prev.inventoryCounts.map(c => 
-          c.status === 'pending' ? { ...c, status: 'cancelled' as const } : c
-        )
-      };
-      mockDb.save(updatedState);
-      return updatedState;
-    });
+    setState(prev => ({
+      ...prev,
+      inventoryCounts: prev.inventoryCounts.filter(c => c.status !== 'pending')
+    }));
+
+    const client = getSupabase();
+    if (client) {
+      (async () => {
+        try {
+          await client.from('inventory_counts').delete().eq('status', 'pending');
+          refreshData();
+        } catch (e) {
+          console.warn('Supabase cancelAllPendingInventoryCounts err:', e);
+        }
+      })();
+    }
   };
 
   const createDistribution = (
@@ -2146,28 +1952,43 @@ export function useRamox() {
         distributions: [...prev.distributions, newDistribution]
       };
 
-      const reconciled = reconcileDistributionOrders(newState);
-      mockDb.save(reconciled);
-      return reconciled;
+      return newState;
     });
 
-    // Sync newly created orders and stock to Supabase
+    // Sync newly created distribution, orders and stock to Supabase
     const client = getSupabase();
-    if (client && newlyCreatedBranchOrders.length > 0) {
+    if (client) {
       (async () => {
         try {
-          for (const bo of newlyCreatedBranchOrders) {
-            const orderPayload = {
-              id: toValidUUID(bo.id),
-              branch_id: toValidUUID(bo.branchId),
-              items: bo.items,
-              status: bo.status,
-              total_value: bo.totalValue,
-              created_at: bo.createdAt,
-              approved_by: bo.approvedBy,
-              approved_at: bo.approvedAt
-            };
-            await client.from('branch_orders').upsert(orderPayload);
+          await client.from('distributions').upsert({
+            id: toValidUUID(newDistribution.id),
+            items: JSON.stringify({
+              type,
+              recipients,
+              items
+            }),
+            created_at: newDistribution.createdAt
+          });
+
+          if (newlyCreatedBranchOrders.length > 0) {
+            for (const bo of newlyCreatedBranchOrders) {
+              const orderPayload = {
+                id: toValidUUID(bo.id),
+                branch_id: toValidUUID(bo.branchId),
+                items: {
+                  orderItems: bo.items,
+                  notes: bo.notes,
+                  orderType: bo.orderType,
+                  recipientName: bo.recipientName
+                },
+                status: bo.status,
+                total_value: bo.totalValue,
+                created_at: bo.createdAt,
+                approved_by: bo.approvedBy,
+                approved_at: bo.approvedAt
+              };
+              await client.from('branch_orders').upsert(orderPayload);
+            }
           }
 
           if (updatedProductsList && updatedProductsList.length > 0) {
@@ -2178,6 +1999,7 @@ export function useRamox() {
               }
             }
           }
+          refreshData();
         } catch (e) {
           console.warn('Supabase createDistribution sync err:', e);
         }
@@ -2237,13 +2059,11 @@ export function useRamox() {
           : o
       );
 
-      const newState = {
+      return {
         ...prev,
         products: updatedProducts,
         branchOrders: updatedOrders
       };
-      mockDb.save(newState);
-      return newState;
     });
 
     const client = getSupabase();
@@ -2264,6 +2084,7 @@ export function useRamox() {
               await client.from('products').update({ current_stock: prod.currentStock }).eq('id', toValidUUID(prod.id));
             }
           }
+          refreshData();
         } catch (e) {
           console.warn('Supabase update branch order items err:', e);
         }
@@ -2272,20 +2093,56 @@ export function useRamox() {
   };
 
   const reportOrderDiscrepancy = (id: string, items: { productId: string, quantity: number }[]) => {
+    const targetUUID = toValidUUID(id);
     setState(prev => {
-      const order = prev.branchOrders.find(o => o.id === id);
+      const order = prev.branchOrders.find(o => o.id === id || toValidUUID(o.id) === targetUUID);
       if (!order) return prev;
       
       const totalValue = items.reduce((acc, item) => {
-        const product = prev.products.find(p => p.id === item.productId);
+        const product = prev.products.find(p => p.id === item.productId || toValidUUID(p.id) === toValidUUID(item.productId));
         return acc + (product ? product.price * item.quantity : 0);
       }, 0);
 
       return {
         ...prev,
-        branchOrders: prev.branchOrders.map(o => o.id === id ? { ...o, items, totalValue, status: 'discrepancy' } : o)
+        branchOrders: prev.branchOrders.map(o => (o.id === id || toValidUUID(o.id) === targetUUID) ? { ...o, items, totalValue, status: 'discrepancy' } : o)
       };
     });
+
+    const client = getSupabase();
+    if (client) {
+      (async () => {
+        try {
+          const totalValue = items.reduce((acc, item) => {
+            const product = state.products.find(p => p.id === item.productId || toValidUUID(p.id) === toValidUUID(item.productId));
+            return acc + (product ? product.price * item.quantity : 0);
+          }, 0);
+          await Promise.allSettled([
+            client.from('branch_orders').update({ items, total_value: totalValue, status: 'discrepancy' }).eq('id', targetUUID),
+            client.from('branch_orders').update({ items, total_value: totalValue, status: 'discrepancy' }).eq('id', id)
+          ]);
+          refreshData();
+        } catch (e) {
+          console.warn('Supabase reportOrderDiscrepancy err:', e);
+        }
+      })();
+    }
+  };
+
+  const syncRoutesToDb = async (updatedRoutes: DeliveryRoute[]) => {
+    const client = getSupabase();
+    if (client) {
+      try {
+        await client.from('app_settings').upsert({
+          key: 'delivery_routes',
+          value: updatedRoutes,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'key' });
+        refreshData();
+      } catch (e) {
+        console.warn('Supabase syncRoutes err:', e);
+      }
+    }
   };
 
   const addBranchToRoute = (dayKey: string, branchId: string) => {
@@ -2298,6 +2155,7 @@ export function useRamox() {
         }
         return r;
       });
+      syncRoutesToDb(updatedRoutes);
       return { ...prev, deliveryRoutes: updatedRoutes };
     });
   };
@@ -2311,6 +2169,7 @@ export function useRamox() {
         }
         return r;
       });
+      syncRoutesToDb(updatedRoutes);
       return { ...prev, deliveryRoutes: updatedRoutes };
     });
   };
@@ -2324,6 +2183,7 @@ export function useRamox() {
         }
         return r;
       });
+      syncRoutesToDb(updatedRoutes);
       return { ...prev, deliveryRoutes: updatedRoutes };
     });
   };
@@ -2337,6 +2197,7 @@ export function useRamox() {
         }
         return r;
       });
+      syncRoutesToDb(updatedRoutes);
       return { ...prev, deliveryRoutes: updatedRoutes };
     });
   };
@@ -2350,6 +2211,7 @@ export function useRamox() {
         }
         return r;
       });
+      syncRoutesToDb(updatedRoutes);
       return { ...prev, deliveryRoutes: updatedRoutes };
     });
   };

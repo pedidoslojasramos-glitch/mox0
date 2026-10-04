@@ -6,13 +6,14 @@ const DEFAULT_SUPABASE_URL = 'https://ihvtfgbvztutvsolwkur.supabase.co';
 const DEFAULT_SUPABASE_KEY = 'sb_publishable_JRZTn4DC13sU9c4e9uqKhg_M4H1rnoS';
 
 export function getSupabaseConfig() {
-  let url = localStorage.getItem('ramox_supabase_url') || env.VITE_SUPABASE_URL || DEFAULT_SUPABASE_URL;
-  let key = localStorage.getItem('ramox_supabase_key') || env.VITE_SUPABASE_ANON_KEY || DEFAULT_SUPABASE_KEY;
+  const hasWindow = typeof window !== 'undefined';
+  let url = (hasWindow ? localStorage.getItem('ramox_supabase_url') : null) || env.VITE_SUPABASE_URL || DEFAULT_SUPABASE_URL;
+  let key = (hasWindow ? localStorage.getItem('ramox_supabase_key') : null) || env.VITE_SUPABASE_ANON_KEY || DEFAULT_SUPABASE_KEY;
 
   // Secret keys (e.g. sb_secret_...) are forbidden by Supabase JS in browser environments
   if (key && (key.startsWith('sb_secret_') || key.includes('service_role'))) {
     console.warn('Secret key detected in browser localStorage. Clearing and using publishable key instead.');
-    localStorage.removeItem('ramox_supabase_key');
+    if (hasWindow) localStorage.removeItem('ramox_supabase_key');
     key = DEFAULT_SUPABASE_KEY;
   }
 
@@ -20,6 +21,7 @@ export function getSupabaseConfig() {
 }
 
 export function saveSupabaseConfig(url: string, key: string) {
+  if (typeof window === 'undefined') return null;
   if (url) localStorage.setItem('ramox_supabase_url', url.trim());
   else localStorage.removeItem('ramox_supabase_url');
 

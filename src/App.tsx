@@ -172,13 +172,14 @@ export default function App() {
     const handleNavigate = (e: any) => {
       if (e.detail && typeof e.detail === 'string') {
         setActiveTab(e.detail);
+        if (refreshData) refreshData();
       }
     };
     window.addEventListener('navigate-tab', handleNavigate);
     return () => {
       window.removeEventListener('navigate-tab', handleNavigate);
     };
-  }, []);
+  }, [refreshData]);
 
   useEffect(() => {
     // Auto-collapse sidebar on mobile/tablet screens when active tab changes
@@ -368,6 +369,7 @@ export default function App() {
                   <div key={section.id} className="space-y-1">
                     <button
                       onClick={() => {
+                        if (refreshData) refreshData();
                         if (hasChildren) {
                           toggleSection(section.id);
                         } else {
@@ -398,6 +400,7 @@ export default function App() {
                             <button
                               key={child.id}
                               onClick={() => {
+                                if (refreshData) refreshData();
                                 setActiveTab(child.id);
                               }}
                               className={`sidebar-item w-full ml-4 w-[calc(100%-1rem)] py-2 text-sm ${activeTab === child.id ? 'active text-cyan-400' : 'text-slate-400 hover:text-slate-200'}`}

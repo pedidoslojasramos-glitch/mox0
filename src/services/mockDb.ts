@@ -83,177 +83,61 @@ const initialState: DbState = {
   deliveryRoutes: DEFAULT_DELIVERY_ROUTES,
 };
 
-const DELETED_KEY = 'ramox_deleted_ids_v1';
-
-export function isRecordDeleted(id: string | undefined | null): boolean {
-  if (!id) return false;
+// Clear obsolete legacy local storage keys on startup so local machine never overrides database
+if (typeof window !== 'undefined') {
   try {
-    if (typeof window === 'undefined') return false;
-    const raw = localStorage.getItem(DELETED_KEY);
-    if (!raw) return false;
-    const set = new Set(JSON.parse(raw));
-    const clean = id.toString().toLowerCase().trim();
-    if (set.has(clean)) return true;
+    localStorage.removeItem('ramox_data');
+    localStorage.removeItem('ramox_deleted_ids_v1');
+    localStorage.removeItem('ramox_cancelled_orders_v1');
+    localStorage.removeItem('ramox_cancelled_dist_branches_v1');
+  } catch (e) {}
+}
 
-    // Standard static ID mappings
-    if (clean === '1' && set.has('88888888-8888-8888-8888-888888888888')) return true;
-    if (clean === '2' && set.has('99999999-9999-9999-9999-999999999999')) return true;
-    if (clean === '3' && set.has('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa')) return true;
-    if (clean === '4' && set.has('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb')) return true;
-  } catch (e) {
-    return false;
-  }
+export function isRecordDeleted(_id: string | undefined | null): boolean {
+  // Never exclude records based on local browser cache - Supabase is the single source of truth
   return false;
 }
 
 export const mockDb = {
   get: (): DbState => {
-    try {
-      const data = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null;
-      if (!data) {
-        if (typeof window !== 'undefined') {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...initialState, _initialized: true }));
-        }
-        return initialState;
-      }
-      const parsed = JSON.parse(data);
-      if (!parsed || typeof parsed !== 'object') {
-        if (typeof window !== 'undefined') {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...initialState, _initialized: true }));
-        }
-        return initialState;
-      }
-      
-      const isInitialized = Boolean(parsed && parsed._initialized);
-
-      const loadedUsers = (Array.isArray(parsed.users) ? parsed.users : (isInitialized ? [] : initialState.users))
-        .filter((u: any) => u && u.id && !isRecordDeleted(u.id))
-        .map((u: any) => ({
-          ...u,
-          password: u?.password ? String(u.password).trim() : '123'
-        }));
-
-      // Guarantee Master Admin user is registered in the users list
-      if (!loadedUsers.some((u: any) => u && u.email && u.email.toLowerCase().trim() === 'admin@ramox.com')) {
-        loadedUsers.unshift({
-          id: '1',
-          name: 'Admin Master',
-          email: 'admin@ramox.com',
-          password: '123',
-          role: 'admin'
-        });
-      }
-
-      const loadedClassifications = (Array.isArray(parsed.productClassifications) 
-        ? parsed.productClassifications 
-        : (isInitialized ? [] : [...initialState.productClassifications])).filter((c: string) => !isRecordDeleted(c));
-      
-      if (!isInitialized && !loadedClassifications.includes('EPIs')) {
-        loadedClassifications.push('EPIs');
-      }
-
-      const loadedProducts = (Array.isArray(parsed.products) ? parsed.products : (isInitialized ? [] : [...initialState.products]))
-        .filter((p: any) => p && p.id && !isRecordDeleted(p.id));
-
-      // Only add default EPIs if database has never been initialized
-      if (!isInitialized) {
-        const hasEpi = loadedProducts.some((p: any) => p && (p.category === 'EPIs' || p.category === 'EPI'));
-        if (!hasEpi) {
-          initialState.products.filter(p => p.category === 'EPIs').forEach(epi => {
-            if (!loadedProducts.some((p: any) => p && p.id === epi.id)) {
-              loadedProducts.push(epi);
-            }
-          });
-        }
-      }
-
-      const loadedBranches = (Array.isArray(parsed.branches) ? parsed.branches : (isInitialized ? [] : initialState.branches))
-        .filter((b: any) => b && b.id && !isRecordDeleted(b.id));
-
-      const loadedSuppliers = (Array.isArray(parsed.suppliers) ? parsed.suppliers : (isInitialized ? [] : initialState.suppliers))
-        .filter((s: any) => s && s.id && !isRecordDeleted(s.id));
-
-      const loadedBranchOrders = (Array.isArray(parsed.branchOrders) ? parsed.branchOrders : [])
-        .filter((o: any) => o && !isRecordDeleted(o.id));
-
-      const loadedPurchaseOrders = (Array.isArray(parsed.purchaseOrders) ? parsed.purchaseOrders : [])
-        .filter((po: any) => po && !isRecordDeleted(po.id));
-
-      let restoredUser: User | null = null;
-      if (typeof window !== 'undefined') {
-        try {
-          const rawSession = localStorage.getItem(SESSION_KEY);
-          if (rawSession) {
-            const session = JSON.parse(rawSession);
-            if (session && session.user && session.lastActivity) {
-              const now = Date.now();
-              if (now - Number(session.lastActivity) < INACTIVITY_TIMEOUT_MS) {
-                const validUser = loadedUsers.find((u: any) => 
-                  u && (u.id === session.user.id || (u.email && session.user.email && u.email.toLowerCase() === session.user.email.toLowerCase()))
-                );
-                if (validUser) {
-                  restoredUser = validUser;
-                  localStorage.setItem(SESSION_KEY, JSON.stringify({ user: validUser, lastActivity: now }));
-                } else {
-                  localStorage.removeItem(SESSION_KEY);
-                }
-              } else {
-                localStorage.removeItem(SESSION_KEY);
-              }
+    let restoredUser: User | null = null;
+    if (typeof window !== 'undefined') {
+      try {
+        const rawSession = localStorage.getItem(SESSION_KEY);
+        if (rawSession) {
+          const session = JSON.parse(rawSession);
+          if (session && session.user && session.lastActivity) {
+            const now = Date.now();
+            if (now - Number(session.lastActivity) < INACTIVITY_TIMEOUT_MS) {
+              restoredUser = session.user;
+            } else {
+              localStorage.removeItem(SESSION_KEY);
             }
           }
-        } catch (e) {
-          console.warn('Error restoring session:', e);
         }
+      } catch (e) {
+        console.warn('Error restoring session:', e);
       }
+    }
 
-      return {
-        ...initialState,
-        ...parsed,
-        users: loadedUsers,
-        currentUser: restoredUser,
-        settings: parsed.settings || initialState.settings,
-        branchLimits: Array.isArray(parsed.branchLimits) ? parsed.branchLimits : [],
-        productClassifications: loadedClassifications,
-        products: loadedProducts,
-        branches: loadedBranches,
-        suppliers: loadedSuppliers,
-        purchaseOrders: loadedPurchaseOrders,
-        branchOrders: loadedBranchOrders,
-        inventoryCounts: Array.isArray(parsed.inventoryCounts) ? parsed.inventoryCounts : [],
-        distributions: Array.isArray(parsed.distributions) ? parsed.distributions : [],
-        deliveryRoutes: Array.isArray(parsed.deliveryRoutes) && parsed.deliveryRoutes.length > 0 ? parsed.deliveryRoutes : DEFAULT_DELIVERY_ROUTES,
-      };
-    } catch (e) {
-      console.error('Error loading mockDb, resetting to initialState:', e);
-      try {
-        if (typeof window !== 'undefined') {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...initialState, _initialized: true }));
-        }
-      } catch (err) {
-        // ignore
-      }
-      return initialState;
-    }
+    return {
+      ...initialState,
+      currentUser: restoredUser
+    };
   },
-  save: (state: DbState) => {
-    try {
-      if (typeof window !== 'undefined') {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...state, _initialized: true }));
-      }
-    } catch (e) {
-      console.error('Error saving to localStorage:', e);
-    }
+  save: (_state: DbState) => {
+    // Database is authoritative and persisted directly to Supabase.
+    // We intentionally do NOT store full application state in the client's localStorage.
   },
   reset: () => {
     try {
       if (typeof window !== 'undefined') {
         localStorage.removeItem(SESSION_KEY);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...initialState, _initialized: true }));
+        localStorage.removeItem(STORAGE_KEY);
         window.location.reload();
       }
     } catch (e) {
-      console.error('Error resetting localStorage:', e);
+      console.error('Error resetting:', e);
     }
   },
   clearCache: () => {
@@ -261,7 +145,6 @@ export const mockDb = {
       if (typeof window !== 'undefined') {
         localStorage.removeItem(SESSION_KEY);
         localStorage.removeItem(STORAGE_KEY);
-        localStorage.removeItem(DELETED_KEY);
         window.location.reload();
       }
     } catch (e) {

@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { useRamoxContext } from '../services/RamoxContextComponent';
+import { Product } from '../types';
 import ExportExcelModal from '../components/ExportExcelModal';
 import ImportExcelModal from '../components/ImportExcelModal';
+import { EditProductModal } from '../components/EditProductModal';
 import { Pagination } from '../components/Pagination';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { 
@@ -40,7 +42,9 @@ import {
   Check,
   ShieldCheck,
   User,
-  FileDown
+  FileDown,
+  Save,
+  RotateCw
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -265,6 +269,9 @@ function InventoryTab() {
 
   const pendingCounts = (inventoryCounts || []).filter(c => c.status === 'pending');
   
+  const [editingInventoryProduct, setEditingInventoryProduct] = useState<Product | null>(null);
+  const [isInventoryEditOpen, setIsInventoryEditOpen] = useState(false);
+  
   const totalItems = products.reduce((acc, p) => acc + p.currentStock, 0);
   const totalValue = products.reduce((acc, p) => acc + (p.currentStock * p.price), 0);
   const lowStockItems = products.filter(p => p.currentStock <= p.minStock);
@@ -443,8 +450,24 @@ function InventoryTab() {
                 return (
                   <TableRow key={p.id}>
                     <TableCell>
-                      <div className="font-medium">{p.name}</div>
-                      <div className="text-xs text-slate-500">{p.code}</div>
+                      <div className="flex items-center justify-between gap-2 group">
+                        <div>
+                          <div className="font-medium">{p.name}</div>
+                          <div className="text-xs text-slate-500 font-mono">{p.code}</div>
+                        </div>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-7 w-7 text-slate-400 hover:text-cyan-400 hover:bg-cyan-500/10 rounded-md cursor-pointer shrink-0 opacity-70 group-hover:opacity-100 transition-opacity" 
+                          title={`Editar dados de ${p.name}`}
+                          onClick={() => {
+                            setEditingInventoryProduct(p);
+                            setIsInventoryEditOpen(true);
+                          }}
+                        >
+                          <Edit size={13} />
+                        </Button>
+                      </div>
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline" className="text-[10px] font-medium uppercase tracking-wider bg-slate-50">
@@ -575,12 +598,21 @@ function InventoryTab() {
          />
         </CardContent>
       </Card>
+
+      <EditProductModal
+        product={editingInventoryProduct}
+        isOpen={isInventoryEditOpen}
+        onClose={() => {
+          setIsInventoryEditOpen(false);
+          setEditingInventoryProduct(null);
+        }}
+      />
     </div>
   );
 }
 
 function ProductsTab() {
-  const { products, addProduct, deleteProduct, globalSearch, productClassifications } = useRamoxContext();
+  const { products, addProduct, updateProduct, deleteProduct, globalSearch, productClassifications } = useRamoxContext();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
@@ -595,6 +627,15 @@ function ProductsTab() {
     minStock: 0,
     image: ''
   });
+
+  // State for editing existing product
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [isEditOpen, setIsEditOpen] = useState(false);
+
+  const handleOpenEdit = (p: Product) => {
+    setEditingProduct(p);
+    setIsEditOpen(true);
+  };
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -769,6 +810,16 @@ function ProductsTab() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Modal de Edição de Produto */}
+        <EditProductModal
+          product={editingProduct}
+          isOpen={isEditOpen}
+          onClose={() => {
+            setIsEditOpen(false);
+            setEditingProduct(null);
+          }}
+        />
       </div>
     </CardHeader>
       <CardContent className="p-0">
@@ -822,7 +873,15 @@ function ProductsTab() {
                 </TableCell>
                 <TableCell className="text-right whitespace-nowrap">
                   <div className="flex justify-end gap-1">
-                    <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-slate-500 hover:text-cyan-400 hover:bg-cyan-500/10" title="Editar"><Edit size={15} /></Button>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-8 w-8 rounded-lg text-slate-500 hover:text-cyan-400 hover:bg-cyan-500/10 cursor-pointer" 
+                      title="Editar Produto"
+                      onClick={() => handleOpenEdit(p)}
+                    >
+                      <Edit size={15} />
+                    </Button>
                     <Button 
                       variant="ghost" 
                       size="icon" 

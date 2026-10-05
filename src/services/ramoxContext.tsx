@@ -651,38 +651,55 @@ export function useRamox() {
     }
   };
 
-  const updateProduct = (id: string, updates: Partial<Product>) => {
+  const updateProduct = async (id: string, updates: Partial<Product>): Promise<boolean> => {
     setState(prev => ({
       ...prev,
-      products: prev.products.map(p => p.id === id ? { ...p, ...updates } : p)
+      products: prev.products.map(p => 
+        (p.id === id || toValidUUID(p.id) === toValidUUID(id) || (p.code && p.code === id))
+          ? { ...p, ...updates }
+          : p
+      )
     }));
 
     const client = getSupabase();
     if (client) {
-      (async () => {
-        try {
-          const productToUpdate = state.products.find(p => p.id === id);
-          if (productToUpdate) {
-            const updated = { ...productToUpdate, ...updates };
-            const payload = {
-              id: toValidUUID(updated.id),
-              name: updated.name,
-              code: updated.code,
-              category: updated.category,
-              unit: updated.unit,
-              price: updated.price,
-              current_stock: updated.currentStock,
-              min_stock: updated.minStock,
-              image: updated.image || ''
-            };
-            await client.from('products').upsert(payload);
-            refreshData();
+      try {
+        const productToUpdate = state.products.find(p => 
+          p.id === id || toValidUUID(p.id) === toValidUUID(id) || (p.code && p.code === id)
+        );
+        if (productToUpdate) {
+          const updated = { ...productToUpdate, ...updates };
+          const payload: any = {
+            name: updated.name,
+            code: updated.code,
+            category: updated.category,
+            unit: updated.unit,
+            price: Number(updated.price) || 0,
+            current_stock: Number(updated.currentStock) || 0,
+            min_stock: Number(updated.minStock) || 0,
+            image: updated.image || '',
+            updated_at: new Date().toISOString()
+          };
+
+          const exactId = productToUpdate.id;
+          const { error: updErr } = await client.from('products').update(payload).eq('id', exactId);
+          if (updErr) {
+            const validUuid = toValidUUID(exactId);
+            await client.from('products').update(payload).eq('id', validUuid);
           }
-        } catch (e) {
-          console.warn('Supabase updateProduct err:', e);
+
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('ramox-refresh-requested'));
+          }
+          await refreshData();
+          return true;
         }
-      })();
+      } catch (e) {
+        console.warn('Supabase updateProduct err:', e);
+        return false;
+      }
     }
+    return true;
   };
 
   // Suppliers

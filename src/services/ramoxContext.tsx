@@ -90,30 +90,72 @@ export function extractDistIdFromOrder(order?: { notes?: string; approvedBy?: st
   return match ? match[1].toLowerCase() : undefined;
 }
 
-export function findProductHelper(products: Product[], productIdOrCode?: string): Product | undefined {
-  if (!productIdOrCode || !products || products.length === 0) return undefined;
-  const clean = productIdOrCode.toString().trim().toLowerCase();
-  const uuid = toValidUUID(clean);
+export function generateNextProductCode(products: Product[]): string {
+  let maxNum = 0;
+  (products || []).forEach(p => {
+    if (!p || !p.code) return;
+    const match = p.code.match(/(\d+)/);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      if (!isNaN(num) && num > maxNum) maxNum = num;
+    }
+  });
+  const nextNum = maxNum > 0 ? maxNum + 1 : (products?.length || 0) + 1;
+  return `P${nextNum.toString().padStart(3, '0')}`;
+}
+
+export function findProductHelper(products: Product[], productIdOrCode?: any): Product | undefined {
+  if (!productIdOrCode || !products || !Array.isArray(products) || products.length === 0) return undefined;
+  if (typeof productIdOrCode === 'object' && productIdOrCode.id) {
+    productIdOrCode = productIdOrCode.id;
+  }
+  const clean = String(productIdOrCode).trim().toLowerCase();
+  if (!clean) return undefined;
 
   // 1. Direct match on id
-  let match = products.find(p => p.id.toLowerCase() === clean);
+  let match = products.find(p => p && p.id && p.id.toLowerCase() === clean);
   if (match) return match;
 
-  // 2. Match on UUID
+  // 2. Direct match on code
+  match = products.find(p => p && p.code && p.code.toLowerCase().trim() === clean);
+  if (match) return match;
+
+  // 3. Direct match on name
+  match = products.find(p => p && p.name && p.name.toLowerCase().trim() === clean);
+  if (match) return match;
+
+  // 4. Match on UUID conversion
+  const uuid = toValidUUID(clean);
   if (uuid) {
-    match = products.find(p => toValidUUID(p.id).toLowerCase() === uuid.toLowerCase());
+    match = products.find(p => p && p.id && toValidUUID(p.id).toLowerCase() === uuid.toLowerCase());
     if (match) return match;
   }
 
-  // 3. Match on code
-  match = products.find(p => p.code && p.code.toLowerCase().trim() === clean);
-  if (match) return match;
-
-  // 4. Match on name
-  match = products.find(p => p.name && p.name.toLowerCase().trim() === clean);
-  if (match) return match;
+  // 5. Match by numeric digits if code has prefix (e.g., '056' vs 'P056')
+  const numOnly = clean.replace(/\D/g, '');
+  if (numOnly && numOnly.length >= 2) {
+    match = products.find(p => p && p.code && p.code.replace(/\D/g, '') === numOnly);
+    if (match) return match;
+  }
 
   return undefined;
+}
+
+export function getProductName(products: Product[], productIdOrCode?: any, fallbackName?: string): string {
+  const p = findProductHelper(products, productIdOrCode);
+  if (p && p.name) return p.name;
+  if (fallbackName && fallbackName.trim()) return fallbackName.trim();
+  if (productIdOrCode && typeof productIdOrCode === 'string' && !productIdOrCode.includes('-')) {
+    return productIdOrCode;
+  }
+  return 'Produto';
+}
+
+export function getProductCode(products: Product[], productIdOrCode?: any, fallbackCode?: string): string {
+  const p = findProductHelper(products, productIdOrCode);
+  if (p && p.code) return p.code;
+  if (fallbackCode) return fallbackCode;
+  return '-';
 }
 
 export function reconcileDistributionOrders(currentState: any): any {
@@ -396,9 +438,15 @@ export function useRamox() {
           }
 
           const classRow = dbSettings.find((s: any) => s.key === 'product_classifications');
-          if (classRow && Array.isArray(classRow.value)) {
-            updated.productClassifications = classRow.value;
-          }
+          const existingProductCategories = (updated.products || [])
+            .map(p => (p.category || '').trim())
+            .filter((c): c is string => Boolean(c));
+
+          const baseClassifications = (classRow && Array.isArray(classRow.value))
+            ? classRow.value
+            : (prev.productClassifications || ['Alimentos', 'Bebidas', 'Limpeza', 'Higiene', 'Descartáveis', 'EPIs']);
+
+          updated.productClassifications = Array.from(new Set([...baseClassifications, ...existingProductCategories])).sort();
 
           const routesRow = dbSettings.find((s: any) => s.key === 'delivery_routes');
           if (routesRow && Array.isArray(routesRow.value)) {
@@ -556,69 +604,180 @@ export function useRamox() {
   }, [state.currentUser]);
 
   // Products
-  const addProduct = (product: Omit<Product, 'id'>) => {
-    const newProduct = { ...product, id: Math.random().toString(36).substr(2, 9) };
-    setState(prev => ({
-      ...prev,
-      products: [...prev.products, newProduct]
-    }));
+  const addProduct = async (product: Omit<Product, 'id'>): Promise<{ success: boolean; error?: string; product?: Product }> => {
+    const cleanName = (product.name || '').trim();
+    let cleanCode = (product.code || '').trim().toUpperCase();
+    let cleanCategory = (product.category || '').trim();
+
+    if (!cleanName) {
+      return { success: false, error: 'O nome do produto é obrigatório.' };
+    }
+
+    if (!cleanCategory) {
+      cleanCategory = (state.productClassifications && state.productClassifications[0]) || 'Geral';
+    }
+
+    // Auto-generate code if empty
+    if (!cleanCode) {
+      cleanCode = generateNextProductCode(state.products);
+    }
+
+    // Check duplicate code in local state, resolve to next available code
+    let finalCode = cleanCode;
+    const existingCodes = new Set(state.products.map(p => (p.code || '').trim().toUpperCase()));
+    if (existingCodes.has(finalCode)) {
+      finalCode = generateNextProductCode(state.products);
+    }
+
+    const newId = typeof crypto !== 'undefined' && crypto.randomUUID 
+      ? crypto.randomUUID() 
+      : toValidUUID(Math.random().toString(36).substr(2, 9));
+
+    const payload = {
+      id: newId,
+      name: cleanName,
+      code: finalCode,
+      category: cleanCategory,
+      unit: product.unit || 'un',
+      price: Math.max(0, Number(product.price) || 0),
+      current_stock: Math.max(0, Number(product.currentStock) || 0),
+      min_stock: Math.max(0, Number(product.minStock) || 0),
+      image: product.image || '',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
+    const newProduct: Product = {
+      id: newId,
+      name: payload.name,
+      code: payload.code,
+      category: payload.category,
+      unit: payload.unit,
+      price: payload.price,
+      currentStock: payload.current_stock,
+      minStock: payload.min_stock,
+      image: payload.image
+    };
+
+    // Optimistically update local state immediately
+    setState(prev => {
+      const updatedCats = prev.productClassifications?.includes(cleanCategory)
+        ? prev.productClassifications
+        : [...(prev.productClassifications || []), cleanCategory].sort();
+
+      return {
+        ...prev,
+        productClassifications: updatedCats,
+        products: [...prev.products.filter(p => p.id !== newId && p.code !== finalCode), newProduct]
+      };
+    });
 
     const client = getSupabase();
     if (client) {
-      (async () => {
-        try {
-          const payload = {
-            id: toValidUUID(newProduct.id),
-            name: newProduct.name,
-            code: newProduct.code,
-            category: newProduct.category,
-            unit: newProduct.unit,
-            price: newProduct.price,
-            current_stock: newProduct.currentStock,
-            min_stock: newProduct.minStock,
-            image: newProduct.image || ''
-          };
-          await client.from('products').upsert(payload);
-          refreshData();
-        } catch (e) {
-          console.warn('Supabase addProduct err:', e);
+      try {
+        let { data, error } = await client.from('products').insert(payload).select();
+        
+        // If conflict in database, retry with unique timestamp code
+        if (error && (error.code === '23505' || error.message?.includes('duplicate key') || error.message?.includes('products_code_key'))) {
+          const fallbackCode = `P${Date.now().toString().slice(-4)}`;
+          payload.code = fallbackCode;
+          newProduct.code = fallbackCode;
+          const retryRes = await client.from('products').insert(payload).select();
+          data = retryRes.data;
+          error = retryRes.error;
         }
-      })();
+
+        if (error) {
+          console.warn('Supabase addProduct err:', error);
+          // Keep local product so work is not lost
+          return { success: true, product: newProduct };
+        }
+
+        const savedId = (data && data[0]?.id) || newId;
+        const savedProd = { ...newProduct, id: savedId };
+
+        setState(prev => ({
+          ...prev,
+          products: prev.products.map(p => p.id === newId ? savedProd : p)
+        }));
+
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('ramox-refresh-requested'));
+        }
+        refreshData().catch(() => {});
+        return { success: true, product: savedProd };
+      } catch (e: any) {
+        console.warn('Supabase addProduct exception:', e);
+        return { success: true, product: newProduct };
+      }
     }
+
+    return { success: true, product: newProduct };
   };
 
-  const bulkAddProducts = (newProductsList: Omit<Product, 'id'>[]) => {
-    const createdProducts = newProductsList.map(p => ({
-      ...p,
-      id: Math.random().toString(36).substr(2, 9)
-    }));
+  const bulkAddProducts = async (newProductsList: Omit<Product, 'id'>[]) => {
+    if (!newProductsList || newProductsList.length === 0) return;
+
+    const client = getSupabase();
+    const createdProducts: Product[] = [];
+    const payloads: any[] = [];
+
+    for (const p of newProductsList) {
+      const cleanCode = (p.code || '').trim();
+      const cleanName = (p.name || '').trim();
+      if (!cleanCode || !cleanName) continue;
+
+      const newId = typeof crypto !== 'undefined' && crypto.randomUUID 
+        ? crypto.randomUUID() 
+        : toValidUUID(Math.random().toString(36).substr(2, 9));
+
+      const payload = {
+        id: newId,
+        name: cleanName,
+        code: cleanCode,
+        category: (p.category || 'Geral').trim(),
+        unit: p.unit || 'un',
+        price: Math.max(0, Number(p.price) || 0),
+        current_stock: Math.max(0, Number(p.currentStock) || 0),
+        min_stock: Math.max(0, Number(p.minStock) || 0),
+        image: p.image || '',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      payloads.push(payload);
+      createdProducts.push({
+        id: newId,
+        name: payload.name,
+        code: payload.code,
+        category: payload.category,
+        unit: payload.unit,
+        price: payload.price,
+        currentStock: payload.current_stock,
+        minStock: payload.min_stock,
+        image: payload.image
+      });
+    }
 
     setState(prev => ({
       ...prev,
       products: [...prev.products, ...createdProducts]
     }));
 
-    const client = getSupabase();
-    if (client) {
-      (async () => {
-        try {
-          const payload = createdProducts.map(p => ({
-            id: toValidUUID(p.id),
-            name: p.name,
-            code: p.code,
-            category: p.category,
-            unit: p.unit,
-            price: p.price,
-            current_stock: p.currentStock,
-            min_stock: p.minStock,
-            image: p.image || ''
-          }));
-          await client.from('products').upsert(payload);
-          refreshData();
-        } catch (e) {
-          console.warn('Supabase bulkAddProducts err:', e);
+    if (client && payloads.length > 0) {
+      try {
+        const { error } = await client.from('products').upsert(payloads, { onConflict: 'code' });
+        if (error) {
+          console.warn('Supabase bulkAddProducts upsert by code error:', error);
+          await client.from('products').upsert(payloads);
         }
-      })();
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('ramox-refresh-requested'));
+        }
+        await refreshData();
+      } catch (e) {
+        console.warn('Supabase bulkAddProducts err:', e);
+      }
     }
   };
 
@@ -652,36 +811,47 @@ export function useRamox() {
   };
 
   const updateProduct = async (id: string, updates: Partial<Product>): Promise<boolean> => {
-    setState(prev => ({
-      ...prev,
-      products: prev.products.map(p => 
-        (p.id === id || toValidUUID(p.id) === toValidUUID(id) || (p.code && p.code === id))
-          ? { ...p, ...updates }
-          : p
-      )
-    }));
+    const cleanId = (id || '').trim();
+    const productToUpdate = findProductHelper(state.products, cleanId);
+
+    setState(prev => {
+      const newCategory = updates.category?.trim();
+      const updatedCats = newCategory && !prev.productClassifications?.includes(newCategory)
+        ? [...(prev.productClassifications || []), newCategory].sort()
+        : prev.productClassifications;
+
+      return {
+        ...prev,
+        productClassifications: updatedCats,
+        products: prev.products.map(p => {
+          const match = p.id === cleanId || 
+                        toValidUUID(p.id) === toValidUUID(cleanId) || 
+                        (productToUpdate && p.id === productToUpdate.id) ||
+                        (p.code && p.code.toLowerCase().trim() === cleanId.toLowerCase());
+          return match ? { ...p, ...updates } : p;
+        })
+      };
+    });
 
     const client = getSupabase();
     if (client) {
       try {
-        const productToUpdate = state.products.find(p => 
-          p.id === id || toValidUUID(p.id) === toValidUUID(id) || (p.code && p.code === id)
-        );
-        if (productToUpdate) {
-          const updated = { ...productToUpdate, ...updates };
+        const prod = productToUpdate || findProductHelper(state.products, cleanId);
+        if (prod) {
+          const updated = { ...prod, ...updates };
           const payload: any = {
-            name: updated.name,
-            code: updated.code,
-            category: updated.category,
-            unit: updated.unit,
-            price: Number(updated.price) || 0,
-            current_stock: Number(updated.currentStock) || 0,
-            min_stock: Number(updated.minStock) || 0,
+            name: (updated.name || '').trim(),
+            code: (updated.code || '').trim().toUpperCase(),
+            category: (updated.category || '').trim(),
+            unit: updated.unit || 'un',
+            price: Math.max(0, Number(updated.price) || 0),
+            current_stock: Math.max(0, Number(updated.currentStock) || 0),
+            min_stock: Math.max(0, Number(updated.minStock) || 0),
             image: updated.image || '',
             updated_at: new Date().toISOString()
           };
 
-          const exactId = productToUpdate.id;
+          const exactId = prod.id;
           const { error: updErr } = await client.from('products').update(payload).eq('id', exactId);
           if (updErr) {
             const validUuid = toValidUUID(exactId);
@@ -691,7 +861,7 @@ export function useRamox() {
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent('ramox-refresh-requested'));
           }
-          await refreshData();
+          refreshData().catch(() => {});
           return true;
         }
       } catch (e) {
@@ -762,7 +932,7 @@ export function useRamox() {
   // Purchase Orders
   const createPurchaseOrder = (supplierId: string, items: { productId: string, quantity: number }[]) => {
     const totalValue = items.reduce((acc, item) => {
-      const product = state.products.find(p => p.id === item.productId || toValidUUID(p.id) === toValidUUID(item.productId));
+      const product = findProductHelper(state.products, item.productId);
       return acc + (product ? product.price * item.quantity : 0);
     }, 0);
 
@@ -863,7 +1033,7 @@ export function useRamox() {
   const checkBranchOrderLimits = (branchId: string, items: { productId: string, quantity: number }[], excludeOrderId?: string) => {
     // Check if any product in the order has zero central stock
     for (const item of items) {
-      const product = state.products.find(p => p.id === item.productId);
+      const product = findProductHelper(state.products, item.productId);
       if (product && product.currentStock <= 0) {
         return {
           allowed: false,
@@ -876,7 +1046,7 @@ export function useRamox() {
     if (!limits) return { allowed: true };
 
     const totalValue = items.reduce((acc, item) => {
-      const product = state.products.find(p => p.id === item.productId);
+      const product = findProductHelper(state.products, item.productId);
       return acc + (product ? product.price * item.quantity : 0);
     }, 0);
 
@@ -914,7 +1084,7 @@ export function useRamox() {
         });
 
         if (alreadyOrdered + item.quantity > limitQty) {
-          const product = state.products.find(p => p.id === item.productId);
+          const product = findProductHelper(state.products, item.productId);
           const productName = product ? product.name : 'Produto';
           const remaining = Math.max(0, limitQty - alreadyOrdered);
           return {
@@ -974,7 +1144,7 @@ export function useRamox() {
 
     // Check stock availability
     for (const item of items) {
-      const product = state.products.find(p => p.id === item.productId);
+      const product = findProductHelper(state.products, item.productId);
       if (product && product.currentStock < item.quantity) {
         return {
           success: false,
@@ -984,7 +1154,7 @@ export function useRamox() {
     }
 
     const totalValue = items.reduce((acc, item) => {
-      const product = state.products.find(p => p.id === item.productId);
+      const product = findProductHelper(state.products, item.productId);
       return acc + (product ? product.price * item.quantity : 0);
     }, 0);
 
@@ -1668,7 +1838,7 @@ export function useRamox() {
 
   // Inventory Counts
   const requestInventoryCount = (productId: string) => {
-    const product = state.products.find(p => p.id === productId || toValidUUID(p.id) === toValidUUID(productId));
+    const product = findProductHelper(state.products, productId);
     if (!product) return;
 
     const newCountId = crypto.randomUUID ? crypto.randomUUID() : toValidUUID(Math.random().toString(36).substr(2, 9));
@@ -2088,7 +2258,7 @@ export function useRamox() {
       (async () => {
         try {
           const totalValue = items.reduce((acc, item) => {
-            const product = state.products.find(p => p.id === item.productId);
+            const product = findProductHelper(state.products, item.productId);
             return acc + (product ? product.price * item.quantity : 0);
           }, 0);
           const { error } = await client.from('branch_orders').update({ items, total_value: totalValue }).eq('id', targetUUID);
@@ -2116,7 +2286,7 @@ export function useRamox() {
       if (!order) return prev;
       
       const totalValue = items.reduce((acc, item) => {
-        const product = prev.products.find(p => p.id === item.productId || toValidUUID(p.id) === toValidUUID(item.productId));
+        const product = findProductHelper(prev.products, item.productId);
         return acc + (product ? product.price * item.quantity : 0);
       }, 0);
 
@@ -2131,7 +2301,7 @@ export function useRamox() {
       (async () => {
         try {
           const totalValue = items.reduce((acc, item) => {
-            const product = state.products.find(p => p.id === item.productId || toValidUUID(p.id) === toValidUUID(item.productId));
+            const product = findProductHelper(state.products, item.productId);
             return acc + (product ? product.price * item.quantity : 0);
           }, 0);
           await Promise.allSettled([

@@ -1,7 +1,7 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { BranchOrder, Branch, Product, Supplier, InventoryCount } from '../types';
-import { findProductHelper } from '../services/ramoxContext';
+import { findProductHelper, getProductName, getProductCode } from '../services/ramoxContext';
 
 /**
  * Brand colors for Lojas Ramos / RAMOS MÓVEIS E ELETRODOMÉSTICOS
@@ -1213,12 +1213,12 @@ export function generateEpiTermPDF(
 
     // Collect items for this branch
     const branchItems = distribution.items.map((item: any) => {
-      const prod = products.find(p => p.id === item.productId);
+      const prod = findProductHelper(products, item.productId);
       const qInfo = item.quantityPerBranch.find((q: any) => q.branchId === branchId);
       if (qInfo && qInfo.quantity > 0) {
         return {
-          productName: (prod?.name || 'EPI').toUpperCase(),
-          code: (prod?.code || '').toUpperCase(),
+          productName: getProductName(products, item.productId, prod?.name).toUpperCase(),
+          code: getProductCode(products, item.productId, prod?.code).toUpperCase(),
           unit: (prod?.unit || 'UN').toUpperCase(),
           quantity: qInfo.quantity,
           category: (prod?.category || '').toUpperCase()
@@ -1462,12 +1462,12 @@ export function generateDistributionRomaneioPDF(
     // Collect items for this branch
     const branchItems: any[] = [];
     distribution.items.forEach((item: any) => {
-      const prod = products.find(p => p.id === item.productId);
+      const prod = findProductHelper(products, item.productId);
       const qInfo = item.quantityPerBranch?.find((q: any) => q.branchId === branchId);
       if (qInfo && qInfo.quantity > 0) {
         branchItems.push({
-          code: prod?.code || 'N/A',
-          productName: prod?.name || 'Produto',
+          code: getProductCode(products, item.productId, prod?.code),
+          productName: getProductName(products, item.productId, prod?.name),
           category: prod?.category || 'Geral',
           unit: prod?.unit || 'un',
           quantity: qInfo.quantity
@@ -1758,12 +1758,12 @@ export function generateDistributionReceiptPDF(
 
     const branchItems: any[] = [];
     distribution.items.forEach((item: any) => {
-      const prod = products.find(p => p.id === item.productId);
+      const prod = findProductHelper(products, item.productId);
       const qInfo = item.quantityPerBranch?.find((q: any) => q.branchId === branchId);
       if (qInfo && qInfo.quantity > 0) {
         branchItems.push({
-          code: prod?.code || 'N/A',
-          productName: prod?.name || 'Produto',
+          code: getProductCode(products, item.productId, prod?.code),
+          productName: getProductName(products, item.productId, prod?.name),
           category: prod?.category || 'Geral',
           unit: prod?.unit || 'un',
           quantity: qInfo.quantity

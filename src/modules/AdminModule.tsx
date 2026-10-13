@@ -83,7 +83,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import LimitsModule from './LimitsModule';
 import { RoutesModule } from './RoutesModule';
 import LogisticsModule from './LogisticsModule';
-import { toValidUUID } from '../services/ramoxContext';
+import { toValidUUID, findProductHelper, getProductName, getProductCode, generateNextProductCode } from '../services/ramoxContext';
+import { compressImage } from '../utils/imageUtils';
 
 export default function AdminModule({ initialTab }: { initialTab?: string }) {
   const { branchOrders } = useRamoxContext();
@@ -617,6 +618,8 @@ function ProductsTab() {
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+  const [isCustomCategory, setIsCustomCategory] = useState(false);
   const [newProduct, setNewProduct] = useState({
     name: '',
     code: '',
@@ -637,26 +640,93 @@ function ProductsTab() {
     setIsEditOpen(true);
   };
 
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleOpenAdd = () => {
+    const nextCode = generateNextProductCode(products);
+    const defaultCat = (productClassifications && productClassifications.length > 0) ? productClassifications[0] : '';
+    setNewProduct({
+      name: '',
+      code: nextCode,
+      category: defaultCat,
+      unit: 'un',
+      price: 0,
+      currentStock: 0,
+      minStock: 0,
+      image: ''
+    });
+    setIsCustomCategory(false);
+    setIsAddOpen(true);
+  };
+
+  const handleSuggestCode = () => {
+    const suggested = generateNextProductCode(products);
+    setNewProduct(prev => ({ ...prev, code: suggested }));
+    toast.info(`Código sugerido: ${suggested}`);
+  };
+
+  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setNewProduct({ ...newProduct, image: reader.result as string });
-      };
-      reader.readAsDataURL(file);
+      try {
+        const compressed = await compressImage(file, 800, 800, 0.75);
+        setNewProduct(prev => ({ ...prev, image: compressed }));
+        toast.success('Imagem carregada com sucesso!');
+      } catch (err: any) {
+        toast.error(err?.message || 'Erro ao processar imagem.');
+      }
     }
   };
 
-  const handleAdd = () => {
-    if (!newProduct.name.trim() || !newProduct.code.trim() || !newProduct.category) {
-      toast.error('Preencha todos os campos obrigatórios (Nome, Código e Categoria)');
+  const handleAdd = async () => {
+    const trimmedName = newProduct.name.trim();
+    let trimmedCode = newProduct.code.trim().toUpperCase();
+    let trimmedCategory = newProduct.category.trim();
+
+    if (!trimmedName) {
+      toast.error('Informe o nome do produto.');
       return;
     }
-    addProduct(newProduct);
-    setIsAddOpen(false);
-    toast.success('Produto cadastrado com sucesso!');
-    setNewProduct({ name: '', code: '', category: '', unit: 'un', price: 0, currentStock: 0, minStock: 0, image: '' });
+
+    if (!trimmedCategory) {
+      trimmedCategory = (productClassifications && productClassifications[0]) || 'Geral';
+    }
+
+    if (!trimmedCode) {
+      trimmedCode = generateNextProductCode(products);
+    }
+
+    // Auto-resolve duplicate code to next available
+    const duplicate = products.find(p => p.code?.toUpperCase().trim() === trimmedCode);
+    if (duplicate) {
+      trimmedCode = generateNextProductCode(products);
+      toast.info(`Código ajustado automaticamente para "${trimmedCode}" para evitar duplicidade.`);
+    }
+
+    setIsCreating(true);
+    try {
+      const res = await addProduct({
+        name: trimmedName,
+        code: trimmedCode,
+        category: trimmedCategory,
+        unit: newProduct.unit || 'un',
+        price: Math.max(0, Number(newProduct.price) || 0),
+        currentStock: Math.max(0, Number(newProduct.currentStock) || 0),
+        minStock: Math.max(0, Number(newProduct.minStock) || 0),
+        image: newProduct.image || ''
+      });
+
+      if (res && res.success) {
+        toast.success(`Produto "${trimmedName}" cadastrado com sucesso!`);
+        setIsAddOpen(false);
+        setNewProduct({ name: '', code: '', category: '', unit: 'un', price: 0, currentStock: 0, minStock: 0, image: '' });
+        setIsCustomCategory(false);
+      } else {
+        toast.error(res?.error || 'Erro ao cadastrar produto no banco de dados.');
+      }
+    } catch (err: any) {
+      toast.error('Erro inesperado ao cadastrar produto.');
+    } finally {
+      setIsCreating(false);
+    }
   };
 
   const effectiveSearch = searchTerm || globalSearch;
@@ -726,87 +796,206 @@ function ProductsTab() {
               { key: 'EstoqueMinimo', label: 'Estoque Mínimo' },
             ]}
           />
-          <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-            <DialogTrigger
-              render={
-                <Button className="bg-cyan-500 hover:bg-cyan-400 text-white h-11 px-6 rounded-lg shadow-[0_0_20px_rgba(6,182,212,0.3)] transition-all hover:scale-[1.02] font-bold border-none">
-                  <Plus size={18} className="mr-2" /> Novo Produto
-                </Button>
-              }
-            />
-          <DialogContent className="sm:max-w-[600px] bg-slate-900 border-slate-800 text-white rounded-md shadow-2xl">
+          <Dialog open={isAddOpen} onOpenChange={(open) => {
+            setIsAddOpen(open);
+            if (!open) {
+              setNewProduct({ name: '', code: '', category: '', unit: 'un', price: 0, currentStock: 0, minStock: 0, image: '' });
+              setIsCustomCategory(false);
+            }
+          }}>
+            <Button 
+              onClick={handleOpenAdd}
+              className="bg-cyan-500 hover:bg-cyan-400 text-white h-11 px-6 rounded-lg shadow-[0_0_20px_rgba(6,182,212,0.3)] transition-all hover:scale-[1.02] font-bold border-none cursor-pointer"
+            >
+              <Plus size={18} className="mr-2" /> Novo Produto
+            </Button>
+          <DialogContent className="sm:max-w-[620px] bg-slate-900 border-slate-800 text-white rounded-md shadow-2xl">
             <DialogHeader>
-              <DialogTitle className="text-2xl font-bold text-white">Cadastrar Novo Produto</DialogTitle>
+              <DialogTitle className="text-2xl font-bold text-white flex items-center gap-2">
+                <Plus className="text-cyan-400" size={22} />
+                <span>Cadastrar Novo Produto</span>
+              </DialogTitle>
             </DialogHeader>
-            <div className="grid gap-6 py-6">
-              <div className="grid grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <Label className="text-xs font-bold uppercase text-cyan-400 tracking-widest">Nome</Label>
-                  <Input className="h-12 rounded-md bg-slate-800 border-slate-700 text-white focus:border-cyan-500/50" value={newProduct.name} onChange={e => setNewProduct({...newProduct, name: e.target.value})} />
+            <div className="grid gap-5 py-4 max-h-[75vh] overflow-y-auto px-1 custom-scrollbar">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-bold uppercase text-cyan-400 tracking-widest">Nome do Produto *</Label>
+                  <Input 
+                    className="h-11 rounded-md bg-slate-800 border-slate-700 text-white focus:border-cyan-500/50" 
+                    placeholder="Ex: Arroz 5kg"
+                    value={newProduct.name} 
+                    onChange={e => setNewProduct({...newProduct, name: e.target.value})} 
+                  />
                 </div>
-                <div className="space-y-2">
-                  <Label className="text-xs font-bold uppercase text-cyan-400 tracking-widest">Código</Label>
-                  <Input className="h-12 rounded-md bg-slate-800 border-slate-700 text-white focus:border-cyan-500/50" value={newProduct.code} onChange={e => setNewProduct({...newProduct, code: e.target.value})} />
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-bold uppercase text-cyan-400 tracking-widest">Código *</Label>
+                    <button 
+                      type="button" 
+                      onClick={handleSuggestCode} 
+                      className="text-[11px] text-cyan-400 hover:underline cursor-pointer"
+                      title="Gerar próximo código automaticamente"
+                    >
+                      Sugerir Código
+                    </button>
+                  </div>
+                  <Input 
+                    className="h-11 rounded-md bg-slate-800 border-slate-700 text-white focus:border-cyan-500/50 font-mono" 
+                    placeholder="Ex: P073"
+                    value={newProduct.code} 
+                    onChange={e => setNewProduct({...newProduct, code: e.target.value})} 
+                  />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <Label className="text-xs font-bold uppercase text-cyan-400 tracking-widest">Categoria</Label>
-                  <Select value={newProduct.category} onValueChange={v => setNewProduct({...newProduct, category: v})}>
-                    <SelectTrigger className="h-12 rounded-md bg-slate-800 border-slate-700 text-white">
-                      <SelectValue placeholder="Selecione..." />
-                    </SelectTrigger>
-                    <SelectContent className="bg-slate-800 border-slate-700 text-white">
-                      {(productClassifications || []).map(c => (
-                        <SelectItem key={c} value={c} className="focus:bg-slate-700 text-white">
-                          {c}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-bold uppercase text-cyan-400 tracking-widest">Categoria *</Label>
+                    <button 
+                      type="button" 
+                      onClick={() => setIsCustomCategory(!isCustomCategory)} 
+                      className="text-[11px] text-cyan-400 hover:underline cursor-pointer"
+                    >
+                      {isCustomCategory ? 'Selecionar da Lista' : '+ Nova Categoria'}
+                    </button>
+                  </div>
+                  {isCustomCategory ? (
+                    <Input 
+                      className="h-11 rounded-md bg-slate-800 border-slate-700 text-white focus:border-cyan-500/50" 
+                      placeholder="Digite a nova categoria..."
+                      value={newProduct.category} 
+                      onChange={e => setNewProduct({...newProduct, category: e.target.value})} 
+                    />
+                  ) : (
+                    <Select value={newProduct.category} onValueChange={v => setNewProduct({...newProduct, category: v})}>
+                      <SelectTrigger className="h-11 rounded-md bg-slate-800 border-slate-700 text-white">
+                        <SelectValue placeholder="Selecione a categoria..." />
+                      </SelectTrigger>
+                      <SelectContent className="bg-slate-800 border-slate-700 text-white">
+                        {(productClassifications || []).map(c => (
+                          <SelectItem key={c} value={c} className="focus:bg-slate-700 text-white cursor-pointer">
+                            {c}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                 </div>
-                <div className="space-y-2">
-                  <Label className="text-xs font-bold uppercase text-cyan-400 tracking-widest">Unidade</Label>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-bold uppercase text-cyan-400 tracking-widest">Unidade de Medida</Label>
                   <Select value={newProduct.unit} onValueChange={v => setNewProduct({...newProduct, unit: v})}>
-                    <SelectTrigger className="h-12 rounded-md bg-slate-800 border-slate-700 text-white">
+                    <SelectTrigger className="h-11 rounded-md bg-slate-800 border-slate-700 text-white">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="bg-slate-800 border-slate-700 text-white">
-                      <SelectItem value="un">Unidade (un)</SelectItem>
-                      <SelectItem value="kg">Quilo (kg)</SelectItem>
-                      <SelectItem value="cx">Caixa (cx)</SelectItem>
-                      <SelectItem value="lt">Litro (lt)</SelectItem>
+                      <SelectItem value="un" className="focus:bg-slate-700 text-white cursor-pointer">Unidade (un)</SelectItem>
+                      <SelectItem value="kg" className="focus:bg-slate-700 text-white cursor-pointer">Quilo (kg)</SelectItem>
+                      <SelectItem value="cx" className="focus:bg-slate-700 text-white cursor-pointer">Caixa (cx)</SelectItem>
+                      <SelectItem value="lt" className="focus:bg-slate-700 text-white cursor-pointer">Litro (lt)</SelectItem>
+                      <SelectItem value="par" className="focus:bg-slate-700 text-white cursor-pointer">Par (par)</SelectItem>
+                      <SelectItem value="pct" className="focus:bg-slate-700 text-white cursor-pointer">Pacote (pct)</SelectItem>
+                      <SelectItem value="fdo" className="focus:bg-slate-700 text-white cursor-pointer">Fardo (fdo)</SelectItem>
+                      <SelectItem value="m" className="focus:bg-slate-700 text-white cursor-pointer">Metro (m)</SelectItem>
+                      <SelectItem value="rolo" className="focus:bg-slate-700 text-white cursor-pointer">Rolo (rolo)</SelectItem>
+                      <SelectItem value="kit" className="focus:bg-slate-700 text-white cursor-pointer">Kit (kit)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
               </div>
-              <div className="grid grid-cols-3 gap-6">
-                <div className="space-y-2">
-                  <Label className="text-xs font-bold uppercase text-cyan-400 tracking-widest">Preço Unit.</Label>
-                  <Input type="number" className="h-12 rounded-md bg-slate-800 border-slate-700 text-white focus:border-cyan-500/50" value={newProduct.price} onChange={e => setNewProduct({...newProduct, price: Number(e.target.value)})} />
+
+              <div className="grid grid-cols-3 gap-4">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-bold uppercase text-cyan-400 tracking-widest">Preço Unit. (R$)</Label>
+                  <Input 
+                    type="number" 
+                    step="0.01"
+                    min="0"
+                    className="h-11 rounded-md bg-slate-800 border-slate-700 text-white focus:border-cyan-500/50" 
+                    value={newProduct.price} 
+                    onChange={e => setNewProduct({...newProduct, price: Math.max(0, parseFloat(e.target.value) || 0)})} 
+                  />
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   <Label className="text-xs font-bold uppercase text-cyan-400 tracking-widest">Estoque Inicial</Label>
-                  <Input type="number" className="h-12 rounded-md bg-slate-800 border-slate-700 text-white focus:border-cyan-500/50" value={newProduct.currentStock} onChange={e => setNewProduct({...newProduct, currentStock: Number(e.target.value)})} />
+                  <Input 
+                    type="number" 
+                    min="0"
+                    className="h-11 rounded-md bg-slate-800 border-slate-700 text-white focus:border-cyan-500/50" 
+                    value={newProduct.currentStock} 
+                    onChange={e => setNewProduct({...newProduct, currentStock: Math.max(0, parseInt(e.target.value) || 0)})} 
+                  />
                 </div>
-                <div className="space-y-2">
-                  <Label className="text-xs font-bold uppercase text-cyan-400 tracking-widest">Estoque Mín.</Label>
-                  <Input type="number" className="h-12 rounded-md bg-slate-800 border-slate-700 text-white focus:border-cyan-500/50" value={newProduct.minStock} onChange={e => setNewProduct({...newProduct, minStock: Number(e.target.value)})} />
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-bold uppercase text-cyan-400 tracking-widest">Estoque Mínimo</Label>
+                  <Input 
+                    type="number" 
+                    min="0"
+                    className="h-11 rounded-md bg-slate-800 border-slate-700 text-white focus:border-cyan-500/50" 
+                    value={newProduct.minStock} 
+                    onChange={e => setNewProduct({...newProduct, minStock: Math.max(0, parseInt(e.target.value) || 0)})} 
+                  />
                 </div>
               </div>
-              <div className="space-y-2">
+
+              <div className="space-y-1.5">
                 <Label className="text-xs font-bold uppercase text-cyan-400 tracking-widest">Foto do Produto</Label>
-                <div className="flex items-center gap-6">
-                  {newProduct.image && (
-                    <img src={newProduct.image} alt="Preview" className="w-20 h-20 object-cover rounded-lg border border-slate-700 shadow-lg" referrerPolicy="no-referrer" />
-                  )}
-                  <Input type="file" accept="image/*" onChange={handleImageChange} className="flex-1 h-12 bg-slate-800 border-slate-700 text-slate-400" />
+                <div className="flex items-center gap-4 p-3 bg-slate-950/60 rounded-lg border border-slate-800">
+                  <div className="w-16 h-16 rounded-md bg-slate-800 border border-slate-700 overflow-hidden flex items-center justify-center flex-shrink-0">
+                    {newProduct.image ? (
+                      <img src={newProduct.image} alt="Preview" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    ) : (
+                      <Package size={24} className="text-slate-600" />
+                    )}
+                  </div>
+                  <div className="flex-1 space-y-2">
+                    <Input 
+                      type="file" 
+                      accept="image/*" 
+                      onChange={handleImageChange} 
+                      className="h-10 text-xs bg-slate-800 border-slate-700 text-slate-300 file:bg-slate-700 file:text-white file:border-0 file:rounded file:px-2 file:py-1 file:mr-2 file:text-xs" 
+                    />
+                    {newProduct.image && (
+                      <Button 
+                        type="button" 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={() => setNewProduct({ ...newProduct, image: '' })}
+                        className="h-7 text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 px-2"
+                      >
+                        <Trash2 size={12} className="mr-1" /> Remover Imagem
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
-            <DialogFooter className="pt-6 border-t border-slate-800">
-              <Button variant="ghost" onClick={() => setIsAddOpen(false)} className="h-12 px-8 rounded-md text-slate-400 hover:text-white hover:bg-slate-800 font-bold">Cancelar</Button>
-              <Button onClick={handleAdd} className="bg-cyan-500 hover:bg-cyan-400 text-white h-12 px-10 rounded-md font-bold shadow-lg shadow-cyan-500/20 border-none">Salvar Produto</Button>
+            <DialogFooter className="pt-4 border-t border-slate-800 gap-2">
+              <Button 
+                variant="ghost" 
+                onClick={() => setIsAddOpen(false)} 
+                className="h-11 px-6 rounded-md text-slate-400 hover:text-white hover:bg-slate-800 font-bold"
+                disabled={isCreating}
+              >
+                Cancelar
+              </Button>
+              <Button 
+                onClick={handleAdd} 
+                className="bg-cyan-500 hover:bg-cyan-400 text-white h-11 px-8 rounded-md font-bold shadow-lg shadow-cyan-500/20 border-none flex items-center gap-2 cursor-pointer"
+                disabled={isCreating}
+              >
+                {isCreating ? (
+                  <>
+                    <RotateCw size={16} className="animate-spin" />
+                    <span>Cadastrando...</span>
+                  </>
+                ) : (
+                  <>
+                    <Plus size={16} />
+                    <span>Salvar Produto</span>
+                  </>
+                )}
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -1293,8 +1482,8 @@ function DistributionTab() {
     });
 
     if (zeroAllocProducts.length > 0) {
-      const firstZeroProd = products.find(p => p.id === zeroAllocProducts[0]);
-      toast.error(`O produto "${firstZeroProd?.name || 'selecionado'}" não possui quantidade definida para as filiais. Digite a quantidade padrão para que a separação não fique incompleta.`);
+      const firstZeroProd = findProductHelper(products, zeroAllocProducts[0]);
+      toast.error(`O produto "${getProductName(products, zeroAllocProducts[0], firstZeroProd?.name)}" não possui quantidade definida para as filiais. Digite a quantidade padrão para que a separação não fique incompleta.`);
       setActiveProductId(zeroAllocProducts[0]);
       return;
     }
@@ -1350,7 +1539,7 @@ function DistributionTab() {
     return matchesSearch && matchesCat;
   });
 
-  const activeProduct = products.find(p => p.id === activeProductId);
+  const activeProduct = findProductHelper(products, activeProductId);
 
   // Computed tracking items for history per branch
   const branchHistoryItems = React.useMemo(() => {
@@ -1382,8 +1571,11 @@ function DistributionTab() {
         d.items.forEach((item: any) => {
           const qInfo = item.quantityPerBranch?.find((q: any) => q.branchId === bId);
           if (qInfo && qInfo.quantity > 0) {
-            const prod = products.find((p) => p.id === item.productId);
-            branchProds.push({ product: prod, quantity: qInfo.quantity });
+            const prod = findProductHelper(products, item.productId);
+            branchProds.push({ 
+              product: prod || { id: item.productId, name: getProductName(products, item.productId), code: getProductCode(products, item.productId), unit: 'un', price: 0 }, 
+              quantity: qInfo.quantity 
+            });
             totalQty += qInfo.quantity;
           }
         });
@@ -1601,11 +1793,11 @@ function DistributionTab() {
                         <TableCell>
                           <div className="flex flex-wrap gap-2">
                             {d.items.map(item => {
-                              const product = products.find(p => p.id === item.productId);
+                              const product = findProductHelper(products, item.productId);
                               const totalQty = item.quantityPerBranch.reduce((acc, q) => acc + q.quantity, 0);
                               return (
                                 <Badge key={item.productId} variant="outline" className="bg-slate-800/50 border-slate-700 text-slate-300 gap-1">
-                                  <span>{product?.name || 'Produto'}</span>
+                                  <span>{getProductName(products, item.productId, product?.name)}</span>
                                   <span className="text-cyan-400 font-bold">({totalQty} {product?.unit || 'un'})</span>
                                 </Badge>
                               );
@@ -2074,7 +2266,7 @@ function DistributionTab() {
 
                     <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1 custom-scrollbar">
                       {selectedProducts.map(productId => {
-                        const prod = products.find(p => p.id === productId);
+                        const prod = findProductHelper(products, productId);
                         const isSelected = activeProductId === productId;
                         const productAlloc = allocations[productId] || {};
                         const totalAllocated = Object.values(productAlloc).reduce((a, b) => (a as number) + (b as number), 0) as number;
@@ -2356,7 +2548,7 @@ function DistributionTab() {
                       </TableHeader>
                       <TableBody>
                         {selectedProducts.map(pId => {
-                          const prod = products.find(p => p.id === pId);
+                          const prod = findProductHelper(products, pId);
                           const productAlloc = allocations[pId] || {};
                           const totalQty = Object.values(productAlloc).reduce((a, b) => (a as number) + (b as number), 0) as number;
                           const branchesCount = Object.values(productAlloc).filter(v => (v as number) > 0).length;
@@ -2725,7 +2917,7 @@ function DistributionTab() {
 
             <div className="space-y-6 py-4 max-h-[65vh] overflow-y-auto custom-scrollbar">
               {viewingDistribution.items.map((item: any, idx: number) => {
-                const prod = products.find(p => p.id === item.productId);
+                const prod = findProductHelper(products, item.productId);
                 const totalQty = item.quantityPerBranch.reduce((acc: number, q: any) => acc + q.quantity, 0);
 
                 return (
@@ -2734,8 +2926,8 @@ function DistributionTab() {
                       <div className="flex items-center gap-3">
                         <Package className="text-cyan-400" size={20} />
                         <div>
-                          <h5 className="font-bold text-sm text-white">{prod?.name || 'Produto'}</h5>
-                          <p className="text-xs font-mono text-cyan-400">{prod?.code}</p>
+                          <h5 className="font-bold text-sm text-white">{getProductName(products, item.productId, prod?.name)}</h5>
+                          <p className="text-xs font-mono text-cyan-400">{getProductCode(products, item.productId, prod?.code)}</p>
                         </div>
                       </div>
                       <Badge className="bg-cyan-500/15 text-cyan-300 border-cyan-500/30">
@@ -2922,12 +3114,12 @@ function DistributionTab() {
 
                   // Collect all items delivered to this branch
                   const branchItems = dist.items.map((item: any) => {
-                    const prod = products.find(p => p.id === item.productId);
+                    const prod = findProductHelper(products, item.productId);
                     const qInfo = item.quantityPerBranch.find((q: any) => q.branchId === branchId);
                     if (qInfo && qInfo.quantity > 0) {
                       return {
-                        productName: prod?.name || 'EPI',
-                        code: prod?.code || '',
+                        productName: getProductName(products, item.productId, prod?.name),
+                        code: getProductCode(products, item.productId, prod?.code),
                         unit: prod?.unit || 'un',
                         quantity: qInfo.quantity
                       };
@@ -3110,10 +3302,10 @@ function DistributionTab() {
         dist.items.forEach((item: any) => {
           const qInfo = item.quantityPerBranch?.find((q: any) => q.branchId === branchId);
           if (qInfo && qInfo.quantity > 0) {
-            const prod = products.find((p) => p.id === item.productId);
+            const prod = findProductHelper(products, item.productId);
             branchItems.push({
-              code: prod?.code || 'N/A',
-              productName: prod?.name || 'Produto',
+              code: getProductCode(products, item.productId, prod?.code),
+              productName: getProductName(products, item.productId, prod?.name),
               category: prod?.category || 'Geral',
               unit: prod?.unit || 'un',
               quantity: qInfo.quantity
@@ -3247,10 +3439,10 @@ function DistributionTab() {
         dist.items.forEach((item: any) => {
           const qInfo = item.quantityPerBranch?.find((q: any) => q.branchId === branchId);
           if (qInfo && qInfo.quantity > 0) {
-            const prod = products.find((p) => p.id === item.productId);
+            const prod = findProductHelper(products, item.productId);
             branchItems.push({
-              code: prod?.code || 'N/A',
-              productName: prod?.name || 'Produto',
+              code: getProductCode(products, item.productId, prod?.code),
+              productName: getProductName(products, item.productId, prod?.name),
               category: prod?.category || 'Geral',
               unit: prod?.unit || 'un',
               quantity: qInfo.quantity
@@ -3409,7 +3601,7 @@ function PurchasesTab() {
   const paginatedOrders = reversedOrders.slice((currentPage - 1) * 15, currentPage * 15);
 
   const currentOrderTotal = orderItems.reduce((acc, item) => {
-    const product = products.find(p => p.id === item.productId);
+    const product = findProductHelper(products, item.productId);
     return acc + (product ? product.price * item.quantity : 0);
   }, 0);
 
@@ -3457,7 +3649,7 @@ function PurchasesTab() {
                 data={filteredOrders.map(o => {
                   const supplier = suppliers.find(s => s.id === o.supplierId);
                   const total = o.items.reduce((acc, item) => {
-                    const p = products.find(prod => prod.id === item.productId);
+                    const p = findProductHelper(products, item.productId);
                     return acc + (p ? p.price * item.quantity : 0);
                   }, 0);
                   return {
@@ -3707,10 +3899,10 @@ function PurchasesTab() {
                     <div className="flex-1 overflow-y-auto px-6 py-3 custom-scrollbar bg-slate-950/20 border-t border-slate-800/50">
                       <AnimatePresence mode="popLayout">
                         {orderItems.map((item, idx) => {
-                          const product = products.find(p => p.id === item.productId);
+                          const product = findProductHelper(products, item.productId);
                           return (
                             <motion.div 
-                              key={item.productId}
+                              key={item.productId} 
                               layout
                               initial={{ opacity: 0, y: 10 }}
                               animate={{ opacity: 1, y: 0 }}
@@ -3729,8 +3921,8 @@ function PurchasesTab() {
 
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2">
-                                  <span className="text-[9px] font-black font-mono text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-1.5 py-0.5 rounded shadow-sm">#{product?.code}</span>
-                                  <h4 className="font-black text-sm text-white truncate uppercase tracking-tight">{product?.name}</h4>
+                                  <span className="text-[9px] font-black font-mono text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-1.5 py-0.5 rounded shadow-sm">#{getProductCode(products, item.productId, product?.code)}</span>
+                                  <h4 className="font-black text-sm text-white truncate uppercase tracking-tight">{getProductName(products, item.productId, product?.name)}</h4>
                                 </div>
                                 <div className="flex items-center gap-3 mt-1">
                                   <div className="flex items-center gap-1 text-slate-500">
@@ -4152,7 +4344,7 @@ function ApprovalTab({ onNavigateToTab }: { onNavigateToTab?: (tab: string) => v
       const branchLoc = (branch?.location || '').toLowerCase();
       const orderId = (o.id || '').toLowerCase();
       const hasProductMatch = (o.items || []).some(item => {
-        const p = products.find(prod => prod.id === item.productId || toValidUUID(prod.id) === toValidUUID(item.productId));
+        const p = findProductHelper(products, item.productId);
         return (p?.name && p.name.toLowerCase().includes(q)) || (p?.code && p.code.toLowerCase().includes(q));
       });
 
@@ -4272,7 +4464,7 @@ function ApprovalTab({ onNavigateToTab }: { onNavigateToTab?: (tab: string) => v
               data={filteredOrders.map(o => {
                 const branch = branches.find(b => b.id === o.branchId);
                 const total = o.items.reduce((acc, item) => {
-                  const p = products.find(prod => prod.id === item.productId);
+                  const p = findProductHelper(products, item.productId);
                   return acc + (p ? p.price * item.quantity : 0);
                 }, 0);
                 return {
@@ -4661,7 +4853,7 @@ function ApprovalTab({ onNavigateToTab }: { onNavigateToTab?: (tab: string) => v
 
                                 <div className="py-4 space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
                                   {editItems.map((item, idx) => {
-                                    const product = products.find(p => p.id === item.productId);
+                                    const product = findProductHelper(products, item.productId);
                                     const isItemSelected = selectedItemProductIds.includes(item.productId);
                                     return (
                                       <div key={idx} className={`flex items-center gap-3 p-3 rounded-md border transition-all ${isItemSelected ? 'bg-red-950/30 border-red-800/50' : 'bg-slate-800/40 border-slate-700/30'}`}>
@@ -4678,8 +4870,8 @@ function ApprovalTab({ onNavigateToTab }: { onNavigateToTab?: (tab: string) => v
                                           }}
                                         />
                                         <div className="flex-1 min-w-0">
-                                          <p className="font-bold text-white text-sm truncate">{product?.name || item.productId}</p>
-                                          <p className="text-xs text-slate-400 uppercase tracking-widest font-mono">{product?.code}</p>
+                                          <p className="font-bold text-white text-sm truncate">{getProductName(products, item.productId, product?.name)}</p>
+                                          <p className="text-xs text-slate-400 uppercase tracking-widest font-mono">{getProductCode(products, item.productId, product?.code)}</p>
                                         </div>
                                         <div className="w-24">
                                           <Label className="text-[10px] text-slate-500 uppercase mb-1 block">Quantidade</Label>
@@ -4948,7 +5140,7 @@ function InvoicingTab() {
               data={filteredOrders.map(o => {
                 const branch = branches.find(b => b.id === o.branchId);
                 const total = o.items.reduce((acc, item) => {
-                  const p = products.find(prod => prod.id === item.productId);
+                  const p = findProductHelper(products, item.productId);
                   return acc + (p ? p.price * item.quantity : 0);
                 }, 0);
                 return {
@@ -5129,13 +5321,13 @@ function InvoicingTab() {
                     </TableHeader>
                     <TableBody>
                       {selectedOrder.items.map((item: any) => {
-                        const product = products.find(p => p.id === item.productId);
+                        const product = findProductHelper(products, item.productId);
                         return (
                           <TableRow key={item.productId} className="border-b border-slate-800/40 hover:bg-slate-800/10 transition-colors">
-                            <TableCell className="font-mono text-xs text-cyan-400 font-bold py-2.5">{product?.code}</TableCell>
-                            <TableCell className="text-xs py-2.5">{product?.name}</TableCell>
-                            <TableCell className="text-xs py-2.5 text-slate-400">{product?.category}</TableCell>
-                            <TableCell className="text-xs text-right font-bold py-2.5">{item.quantity} {product?.unit}</TableCell>
+                            <TableCell className="font-mono text-xs text-cyan-400 font-bold py-2.5">{getProductCode(products, item.productId, product?.code)}</TableCell>
+                            <TableCell className="text-xs py-2.5 font-medium text-white">{getProductName(products, item.productId, product?.name)}</TableCell>
+                            <TableCell className="text-xs py-2.5 text-slate-400">{product?.category || '-'}</TableCell>
+                            <TableCell className="text-xs text-right font-bold py-2.5">{item.quantity} {product?.unit || 'un'}</TableCell>
                           </TableRow>
                         );
                       })}

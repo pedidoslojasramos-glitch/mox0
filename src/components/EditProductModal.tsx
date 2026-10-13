@@ -18,8 +18,9 @@ import {
   SelectTrigger, 
   SelectValue 
 } from '@/components/ui/select';
-import { Edit, Package, Trash2, Save, RotateCw } from 'lucide-react';
+import { Edit, Package, Trash2, Save, RotateCw, Plus } from 'lucide-react';
 import { toast } from 'sonner';
+import { compressImage } from '../utils/imageUtils';
 
 interface EditProductModalProps {
   product: Product | null;
@@ -46,6 +47,7 @@ export function EditProductModal({
     image: ''
   });
   const [isSaving, setIsSaving] = useState(false);
+  const [isCustomCategory, setIsCustomCategory] = useState(false);
 
   useEffect(() => {
     if (product) {
@@ -59,21 +61,20 @@ export function EditProductModal({
         minStock: product.minStock ?? 0,
         image: product.image || ''
       });
+      setIsCustomCategory(false);
     }
   }, [product, isOpen]);
 
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 3 * 1024 * 1024) {
-        toast.error('A imagem deve ter no máximo 3MB.');
-        return;
+      try {
+        const compressed = await compressImage(file, 800, 800, 0.75);
+        setFormData(prev => ({ ...prev, image: compressed }));
+        toast.success('Imagem carregada com sucesso!');
+      } catch (err: any) {
+        toast.error(err?.message || 'Erro ao processar imagem.');
       }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setFormData(prev => ({ ...prev, image: reader.result as string }));
-      };
-      reader.readAsDataURL(file);
     }
   };
 
@@ -163,24 +164,48 @@ export function EditProductModal({
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label className="text-xs font-bold uppercase text-cyan-400 tracking-widest">
-                Categoria *
-              </Label>
-              <Select
-                value={formData.category}
-                onValueChange={v => setFormData({ ...formData, category: v })}
-              >
-                <SelectTrigger className="h-11 rounded-md bg-slate-800 border-slate-700 text-white">
-                  <SelectValue placeholder="Selecione a categoria..." />
-                </SelectTrigger>
-                <SelectContent className="bg-slate-800 border-slate-700 text-white">
-                  {(productClassifications || []).map(c => (
-                    <SelectItem key={c} value={c} className="focus:bg-slate-700 text-white cursor-pointer">
-                      {c}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-bold uppercase text-cyan-400 tracking-widest">
+                  Categoria *
+                </Label>
+                <button 
+                  type="button" 
+                  onClick={() => setIsCustomCategory(!isCustomCategory)} 
+                  className="text-[11px] text-cyan-400 hover:underline cursor-pointer"
+                >
+                  {isCustomCategory ? 'Selecionar da Lista' : '+ Nova Categoria'}
+                </button>
+              </div>
+              {isCustomCategory ? (
+                <Input
+                  className="h-11 rounded-md bg-slate-800 border-slate-700 text-white focus:border-cyan-500/50"
+                  value={formData.category}
+                  onChange={e => setFormData({ ...formData, category: e.target.value })}
+                  placeholder="Digite a nova categoria..."
+                />
+              ) : (
+                <Select
+                  value={formData.category}
+                  onValueChange={v => setFormData({ ...formData, category: v })}
+                >
+                  <SelectTrigger className="h-11 rounded-md bg-slate-800 border-slate-700 text-white">
+                    <SelectValue placeholder="Selecione a categoria..." />
+                  </SelectTrigger>
+                  <SelectContent className="bg-slate-800 border-slate-700 text-white">
+                    {/* Always include current category if not in list */}
+                    {formData.category && !(productClassifications || []).includes(formData.category) && (
+                      <SelectItem value={formData.category} className="focus:bg-slate-700 text-white cursor-pointer">
+                        {formData.category}
+                      </SelectItem>
+                    )}
+                    {(productClassifications || []).map(c => (
+                      <SelectItem key={c} value={c} className="focus:bg-slate-700 text-white cursor-pointer">
+                        {c}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs font-bold uppercase text-cyan-400 tracking-widest">

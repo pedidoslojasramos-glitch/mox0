@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useRamoxContext } from '../services/RamoxContextComponent';
-import { toValidUUID, findProductHelper } from '../services/ramoxContext';
+import { toValidUUID, findProductHelper, getProductName, getProductCode } from '../services/ramoxContext';
 import ExportExcelModal from '../components/ExportExcelModal';
 import Pagination from '../components/Pagination';
 import { generateRomaneioPDF, generateBoxLabelPDF, generateManualPickingPDF, generateManualInventoryCountPDF } from '../utils/pdfGenerator';
@@ -1154,10 +1154,10 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
 
                             <div className="bg-slate-950/30 p-2.5 text-xs rounded border border-slate-850/40 divide-y divide-slate-850/20">
                               {order.items.map((item: any, sIdx: number) => {
-                                const p = products.find(prod => prod.id === item.productId);
+                                const p = findProductHelper(products, item.productId);
                                 return (
                                   <div key={sIdx} className="flex justify-between py-1.5 first:pt-0 last:pb-0 font-medium">
-                                    <span className="text-slate-400 break-words pr-2">{p?.name}</span>
+                                    <span className="text-slate-400 break-words pr-2">{getProductName(products, item.productId, p?.name)}</span>
                                     <span className="text-white font-bold">{item.quantity} {p?.unit || 'un'}</span>
                                   </div>
                                 );
@@ -1620,11 +1620,11 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                           <TableCell>
                             <div className="text-xs space-y-1.5">
                               {order.items.map((item, idx) => {
-                                const product = products.find(p => p.id === item.productId);
+                                const product = findProductHelper(products, item.productId);
                                 return (
                                   <div key={idx} className="text-slate-400 flex items-center gap-2">
                                     <div className="w-1.5 h-1.5 rounded-full bg-cyan-500/50" />
-                                    {product?.name}: <span className="font-bold text-slate-200">{item.quantity} {product?.unit}</span>
+                                    {getProductName(products, item.productId, product?.name)}: <span className="font-bold text-slate-200">{item.quantity} {product?.unit || 'un'}</span>
                                   </div>
                                 );
                               })}
@@ -2218,7 +2218,7 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                     /* 📱 MOBILE / RUN-TIME COLETOR OPTIMIZED VIEW */
                     <div className="space-y-4">
                       {currentOrder.items.map((item: any, idx: number) => {
-                        const product = products.find(p => p.id === item.productId);
+                        const product = findProductHelper(products, item.productId);
                         const receivedQtyVal = receivedQuantities[item.productId] ?? '';
                         const parsedQty = Number(receivedQtyVal);
                         const isFilled = receivedQtyVal !== '' && parsedQty > 0;
@@ -2247,10 +2247,10 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                               </div>
                               <div className="flex-1 min-w-0">
                                 <span className={`font-mono text-[10px] font-black block tracking-wider ${isFullyReceived ? 'text-emerald-400' : 'text-slate-500'}`}>
-                                  CÓD: {product?.code}
+                                  CÓD: {getProductCode(products, item.productId, product?.code)}
                                 </span>
                                 <h4 className={`text-sm sm:text-base font-extrabold leading-tight ${isFullyReceived ? 'text-emerald-200' : 'text-slate-100'}`}>
-                                  {product?.name}
+                                  {getProductName(products, item.productId, product?.name)}
                                 </h4>
                                 <span className="text-xs font-semibold text-slate-400 mt-1 block">
                                   Unidade: <strong className="text-slate-200 uppercase">{product?.unit || 'UN'}</strong>
@@ -2337,7 +2337,7 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                         </TableHeader>
                         <TableBody>
                           {currentOrder.items.map((item: any, idx: number) => {
-                            const product = products.find(p => p.id === item.productId);
+                            const product = findProductHelper(products, item.productId);
                             const receivedQtyVal = receivedQuantities[item.productId] ?? '';
                             const parsedQty = Number(receivedQtyVal);
                             const isFilled = receivedQtyVal !== '' && parsedQty > 0;
@@ -2362,8 +2362,8 @@ export default function LogisticsModule({ initialTab }: { initialTab?: string })
                                 </TableCell>
                                 <TableCell className="py-2.5">
                                   <div>
-                                    <span className="font-mono text-[9px] font-extrabold text-slate-500 block uppercase tracking-wider">CÓD: {product?.code}</span>
-                                    <span className="font-bold text-sm text-slate-200 block">{product?.name}</span>
+                                    <span className="font-mono text-[9px] font-extrabold text-slate-500 block uppercase tracking-wider">CÓD: {getProductCode(products, item.productId, product?.code)}</span>
+                                    <span className="font-bold text-sm text-slate-200 block">{getProductName(products, item.productId, product?.name)}</span>
                                   </div>
                                 </TableCell>
                                 <TableCell className="text-center font-bold font-mono text-cyan-400 text-base">
@@ -2714,7 +2714,7 @@ function OrderCard({ order, onAction, actionLabel, icon, showItems = false, onPr
           <div className="bg-slate-800/40 rounded-lg p-4 space-y-3 border border-slate-700/30">
             <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Lista de Picking</p>
             {order.items.map((item: any, i: number) => {
-              const product = products.find(p => p.id === item.productId);
+              const product = findProductHelper(products, item.productId);
               return (
                 <div key={i} className="flex justify-between items-center text-sm border-b border-slate-700/30 pb-3 last:border-0 last:pb-0">
                   <div className="flex items-center gap-3">
@@ -2728,11 +2728,11 @@ function OrderCard({ order, onAction, actionLabel, icon, showItems = false, onPr
                       )}
                     </div>
                     <div className="flex flex-col">
-                      <span className="font-bold text-slate-200">{product?.name}</span>
-                      <span className="text-[10px] font-mono text-slate-500">{product?.code}</span>
+                      <span className="font-bold text-slate-200">{getProductName(products, item.productId, product?.name)}</span>
+                      <span className="text-[10px] font-mono text-slate-500">{getProductCode(products, item.productId, product?.code)}</span>
                     </div>
                   </div>
-                  <span className="font-black text-white bg-slate-800 px-3 py-1 rounded-lg border border-slate-700">{item.quantity} {product?.unit}</span>
+                  <span className="font-black text-white bg-slate-800 px-3 py-1 rounded-lg border border-slate-700">{item.quantity} {product?.unit || 'un'}</span>
                 </div>
               );
             })}

@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRamoxContext } from '../services/RamoxContextComponent';
+import { Product } from '../types';
+import { findProductHelper, getProductName, getProductCode } from '../services/ramoxContext';
 import ExportExcelModal from '../components/ExportExcelModal';
 import Pagination from '../components/Pagination';
 import { SearchableSelect } from '../components/SearchableSelect';
@@ -198,7 +200,7 @@ export default function BranchModule({ initialTab }: { initialTab?: string }) {
       toast.warning("Este produto já está incluído no pedido.");
       return;
     }
-    const product = products.find(p => p.id === productId);
+    const product = findProductHelper(products, productId);
     if (!product) return;
     if (product.currentStock <= 0) {
       toast.error(`Não é possível adicionar o produto "${product.name}" porque ele está com estoque zerado.`);
@@ -245,7 +247,7 @@ export default function BranchModule({ initialTab }: { initialTab?: string }) {
   const effectiveSearch = searchTerm || globalSearch;
 
   const addToCart = (productId: string) => {
-    const product = products.find(p => p.id === productId);
+    const product = findProductHelper(products, productId);
     if (product && product.currentStock <= 0) {
       toast.error(`O produto "${product.name}" está com estoque zerado e não pode ser solicitado.`);
       return;
@@ -279,7 +281,7 @@ export default function BranchModule({ initialTab }: { initialTab?: string }) {
 
   const cartItemsCount = (Object.values(cart) as number[]).reduce((a, b) => a + b, 0);
   const cartTotal = (Object.entries(cart) as [string, number][]).reduce((acc, [id, qty]) => {
-    const product = products.find(p => p.id === id);
+    const product = findProductHelper(products, id);
     return acc + (product ? product.price * qty : 0);
   }, 0);
 
@@ -354,7 +356,7 @@ export default function BranchModule({ initialTab }: { initialTab?: string }) {
               description="Exporte o histórico de solicitações de abastecimento da sua filial."
               data={filteredOrders.map(o => {
                 const total = o.items.reduce((acc, item) => {
-                  const p = products.find(prod => prod.id === item.productId);
+                  const p = findProductHelper(products, item.productId);
                   return acc + (p ? p.price * item.quantity : 0);
                 }, 0);
                 return {
@@ -665,7 +667,7 @@ export default function BranchModule({ initialTab }: { initialTab?: string }) {
               
               <div className="flex-1 min-h-[150px] lg:min-h-[220px] overflow-y-auto p-3 space-y-2.5 custom-scrollbar bg-slate-950/30">
                 {(Object.entries(cart) as [string, number][]).map(([id, qty]) => {
-                  const product = products.find(p => p.id === id);
+                  const product = findProductHelper(products, id);
                   if (!product) return null;
                   return (
                     <motion.div 
@@ -822,7 +824,7 @@ export default function BranchModule({ initialTab }: { initialTab?: string }) {
 
                     <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-3">
                       {(Object.entries(cart) as [string, number][]).map(([id, qty]) => {
-                        const product = products.find(p => p.id === id);
+                        const product = findProductHelper(products, id);
                         if (!product) return null;
                         return (
                           <div key={id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-slate-900 border border-slate-800 rounded-xl hover:border-cyan-500/20 transition-all">
@@ -904,7 +906,7 @@ export default function BranchModule({ initialTab }: { initialTab?: string }) {
                       <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Resumo dos Itens Confirmados</h3>
                       <div className="space-y-1.5 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
                         {(Object.entries(cart) as [string, number][]).map(([id, qty]) => {
-                          const product = products.find(p => p.id === id);
+                          const product = findProductHelper(products, id);
                           if (!product) return null;
                           return (
                             <div key={id} className="flex items-center justify-between p-2.5 bg-slate-900/50 rounded-lg border border-slate-800/40">
@@ -1096,15 +1098,15 @@ export default function BranchModule({ initialTab }: { initialTab?: string }) {
                                 </DialogHeader>
                                 <div className="py-4 space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
                                   {reviewItems.map((item, idx) => {
-                                    const product = products.find(p => p.id === item.productId);
+                                    const product = findProductHelper(products, item.productId);
                                     const originalQty = order.items.find((i: any) => i.productId === item.productId)?.quantity || 0;
                                     const hasDiff = item.quantity !== originalQty;
 
                                     return (
                                       <div key={idx} className={`flex items-center gap-4 p-3 rounded-md border ${hasDiff ? 'bg-red-500/10 border-red-500/30' : 'bg-slate-800/40 border-slate-700/30'}`}>
                                         <div className="flex-1">
-                                          <p className="font-bold text-white">{product?.name}</p>
-                                          <p className="text-xs text-slate-400 font-mono">{product?.code}</p>
+                                          <p className="font-bold text-white">{getProductName(products, item.productId, product?.name)}</p>
+                                          <p className="text-xs text-slate-400 font-mono">{getProductCode(products, item.productId, product?.code)}</p>
                                         </div>
                                         <div className="w-32">
                                           <Label className="text-[10px] text-slate-500 uppercase mb-1 block">Qtd Recebida</Label>
@@ -1240,8 +1242,17 @@ export default function BranchModule({ initialTab }: { initialTab?: string }) {
             ) : (
               <div className="space-y-2 font-medium">
                 {editingOrderItems.map((item) => {
-                  const product = products.find(p => p.id === item.productId);
-                  if (!product) return null;
+                  const product: Product = findProductHelper(products, item.productId) || {
+                    id: item.productId,
+                    name: getProductName(products, item.productId),
+                    code: getProductCode(products, item.productId),
+                    category: 'Geral',
+                    unit: 'un',
+                    price: 0,
+                    currentStock: 0,
+                    minStock: 0,
+                    image: ''
+                  };
                   const subtotal = product.price * item.quantity;
 
                   return (
@@ -1372,7 +1383,7 @@ export default function BranchModule({ initialTab }: { initialTab?: string }) {
                 <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider block">Valor Total</span>
                 <span className="text-sm font-black text-white font-mono">
                   R$ {editingOrderItems.reduce((acc, item) => {
-                    const p = products.find(prod => prod.id === item.productId);
+                    const p = findProductHelper(products, item.productId);
                     return acc + (p ? p.price * item.quantity : 0);
                   }, 0).toFixed(2)}
                 </span>

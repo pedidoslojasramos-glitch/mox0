@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useRamoxContext } from '../services/RamoxContextComponent';
+import { findProductHelper } from '../services/ramoxContext';
 import ImportExcelModal from '../components/ImportExcelModal';
 import Pagination from '../components/Pagination';
 import { SearchableSelect } from '../components/SearchableSelect';
@@ -112,7 +113,7 @@ export default function LimitsModule({ hideHeader = false }: LimitsModuleProps) 
 
   const selectedBranch = branches.find(b => b.id === selectedBranchId);
   const otherBranches = branches.filter(b => b.id !== selectedBranchId);
-  const selectedProductObj = products.find(p => p.id === selectedProductId);
+  const selectedProductObj = findProductHelper(products, selectedProductId);
 
   // --- HANDLERS MODE 1 ---
   const handleToggleReplicate = (branchId: string) => {

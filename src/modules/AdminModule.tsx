@@ -667,7 +667,7 @@ function ProductsTab() {
     const file = e.target.files?.[0];
     if (file) {
       try {
-        const compressed = await compressImage(file, 800, 800, 0.75);
+        const compressed = await compressImage(file, 400, 400, 0.70);
         setNewProduct(prev => ({ ...prev, image: compressed }));
         toast.success('Imagem carregada com sucesso!');
       } catch (err: any) {

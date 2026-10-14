@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useRamoxContext } from '../services/RamoxContextComponent';
+import { productImageCache } from '../services/ramoxContext';
 import { Product } from '../types';
 import { 
   Dialog, 
@@ -59,7 +60,7 @@ export function EditProductModal({
         price: product.price ?? 0,
         currentStock: product.currentStock ?? 0,
         minStock: product.minStock ?? 0,
-        image: product.image || ''
+        image: product.image || productImageCache.get(product.id) || ''
       });
       setIsCustomCategory(false);
     }
@@ -69,7 +70,7 @@ export function EditProductModal({
     const file = e.target.files?.[0];
     if (file) {
       try {
-        const compressed = await compressImage(file, 800, 800, 0.75);
+        const compressed = await compressImage(file, 400, 400, 0.70);
         setFormData(prev => ({ ...prev, image: compressed }));
         toast.success('Imagem carregada com sucesso!');
       } catch (err: any) {

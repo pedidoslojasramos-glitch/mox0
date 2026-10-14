@@ -163,14 +163,69 @@ export function reconcileDistributionOrders(currentState: any): any {
   return currentState;
 }
 
+// In-memory cache for product images to avoid pulling 30MB base64 payloads on every heartbeat
+export const productImageCache = new Map<string, string>();
+
+export function getProductCachedImage(productId: string): string {
+  return productImageCache.get(productId) || productImageCache.get(toValidUUID(productId)) || '';
+}
+
 export function useRamox() {
   const [state, setState] = useState(() => reconcileDistributionOrders(mockDb.get()));
   const [globalSearch, setGlobalSearch] = useState('');
   const isInitialLoadCompleteRef = useRef(false);
+  const isFetchingRef = useRef(false);
+  const isHydratingImagesRef = useRef(false);
+
+  const hydrateMissingImages = async (client: any) => {
+    if (isHydratingImagesRef.current || !client) return;
+    isHydratingImagesRef.current = true;
+    try {
+      // Find up to 12 products that lack images and aren't in cache
+      const currentProds = state.products || [];
+      const needImages = currentProds.filter(p => !p.image && !productImageCache.get(p.id));
+      if (needImages.length === 0) return;
+
+      const batch = needImages.slice(0, 12).map(p => p.id);
+      const { data, error } = await client
+        .from('products')
+        .select('id, image')
+        .in('id', batch);
+
+      if (!error && Array.isArray(data)) {
+        let hasNew = false;
+        data.forEach((item: any) => {
+          if (item && item.id && item.image) {
+            productImageCache.set(item.id, item.image);
+            productImageCache.set(toValidUUID(item.id), item.image);
+            hasNew = true;
+          }
+        });
+
+        if (hasNew) {
+          setState(prev => ({
+            ...prev,
+            products: prev.products.map(p => {
+              const img = productImageCache.get(p.id) || productImageCache.get(toValidUUID(p.id));
+              return (img && !p.image) ? { ...p, image: img } : p;
+            })
+          }));
+        }
+      }
+    } catch (e) {
+      console.warn('Silent image hydration notice:', e);
+    } finally {
+      isHydratingImagesRef.current = false;
+    }
+  };
 
   const refreshData = async () => {
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
+
     const client = getSupabase();
     if (!client) {
+      isFetchingRef.current = false;
       const freshLocal = reconcileDistributionOrders(mockDb.get());
       setState(prev => ({
         ...prev,
@@ -195,7 +250,7 @@ export function useRamox() {
       ] = await Promise.all([
         client.from('branches').select('*'),
         client.from('suppliers').select('*'),
-        client.from('products').select('*'),
+        client.from('products').select('id, name, code, category, unit, price, current_stock, min_stock, created_at, updated_at'),
         client.from('users').select('*'),
         client.from('branch_orders').select('*'),
         client.from('purchase_orders').select('*'),
@@ -205,6 +260,7 @@ export function useRamox() {
         client.from('app_settings').select('*')
       ]);
 
+      if (errProducts) console.warn('Supabase fetch products error:', errProducts);
       if (errUsers) console.warn('Supabase fetch users error:', errUsers);
 
       setState(prev => {
@@ -235,19 +291,27 @@ export function useRamox() {
         }
 
         if (!errProducts && Array.isArray(dbProducts)) {
+          const existingMap = new Map<string, Product>((prev.products || []).map(p => [p.id, p]));
           updated.products = dbProducts
             .filter((p: any) => p && p.id && !isDeleted(p.id))
-            .map((p: any) => ({
-              id: p.id,
-              name: p.name,
-              code: p.code,
-              category: p.category,
-              unit: p.unit,
-              price: Number(p.price) || 0,
-              currentStock: p.current_stock ?? p.currentStock ?? 0,
-              minStock: p.min_stock ?? p.minStock ?? 0,
-              image: p.image || ''
-            }));
+            .map((p: any) => {
+              const existing: Product | undefined = existingMap.get(p.id) || existingMap.get(toValidUUID(p.id));
+              const cachedImg = productImageCache.get(p.id) || productImageCache.get(toValidUUID(p.id)) || existing?.image || '';
+              if (cachedImg) {
+                productImageCache.set(p.id, cachedImg);
+              }
+              return {
+                id: p.id,
+                name: p.name,
+                code: p.code,
+                category: p.category,
+                unit: p.unit,
+                price: Number(p.price) || 0,
+                currentStock: p.current_stock ?? p.currentStock ?? 0,
+                minStock: p.min_stock ?? p.minStock ?? 0,
+                image: cachedImg
+              };
+            });
         }
 
         if (!errUsers && Array.isArray(dbUsers)) {
@@ -460,6 +524,11 @@ export function useRamox() {
       console.warn('Erro ao sincronizar dados com o Supabase:', e);
     } finally {
       isInitialLoadCompleteRef.current = true;
+      isFetchingRef.current = false;
+      const client = getSupabase();
+      if (client) {
+        hydrateMissingImages(client).catch(() => {});
+      }
     }
   };
 
@@ -468,11 +537,11 @@ export function useRamox() {
     refreshData();
   }, []);
 
-  // 2. Realtime subscription + Polling Heartbeat (every 3.5 seconds) for 100% synchronization across all users
+  // 2. Realtime subscription + Polling Heartbeat (every 25 seconds as safety net, while Realtime does instant push)
   useEffect(() => {
     const heartbeat = setInterval(() => {
       refreshData();
-    }, 3500);
+    }, 25000);
 
     const handleFocus = () => {
       refreshData();
@@ -487,11 +556,15 @@ export function useRamox() {
 
     const client = getSupabase();
     let channel: any = null;
+    let debounceTimer: any = null;
     if (client) {
       try {
         channel = client.channel('ramox-realtime-db-sync')
           .on('postgres_changes', { event: '*', schema: 'public' }, () => {
-            refreshData();
+            if (debounceTimer) clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+              refreshData();
+            }, 600);
           })
           .subscribe();
       } catch (e) {
@@ -501,6 +574,7 @@ export function useRamox() {
 
     return () => {
       clearInterval(heartbeat);
+      if (debounceTimer) clearTimeout(debounceTimer);
       window.removeEventListener('focus', handleFocus);
       window.removeEventListener('ramox-refresh-requested', handleRefreshReq);
       if (client && channel) {
@@ -659,6 +733,11 @@ export function useRamox() {
       image: payload.image
     };
 
+    if (payload.image) {
+      productImageCache.set(newId, payload.image);
+      productImageCache.set(toValidUUID(newId), payload.image);
+    }
+
     // Optimistically update local state immediately
     setState(prev => {
       const updatedCats = prev.productClassifications?.includes(cleanCategory)
@@ -813,6 +892,14 @@ export function useRamox() {
   const updateProduct = async (id: string, updates: Partial<Product>): Promise<boolean> => {
     const cleanId = (id || '').trim();
     const productToUpdate = findProductHelper(state.products, cleanId);
+
+    if (updates.image) {
+      productImageCache.set(cleanId, updates.image);
+      productImageCache.set(toValidUUID(cleanId), updates.image);
+      if (productToUpdate) {
+        productImageCache.set(productToUpdate.id, updates.image);
+      }
+    }
 
     setState(prev => {
       const newCategory = updates.category?.trim();

@@ -84,7 +84,6 @@ import LimitsModule from './LimitsModule';
 import { RoutesModule } from './RoutesModule';
 import LogisticsModule from './LogisticsModule';
 import { toValidUUID, findProductHelper, getProductName, getProductCode, generateNextProductCode } from '../services/ramoxContext';
-import { compressImage } from '../utils/imageUtils';
 
 export default function AdminModule({ initialTab }: { initialTab?: string }) {
   const { branchOrders } = useRamoxContext();
@@ -627,8 +626,7 @@ function ProductsTab() {
     unit: 'un',
     price: 0,
     currentStock: 0,
-    minStock: 0,
-    image: ''
+    minStock: 0
   });
 
   // State for editing existing product
@@ -650,8 +648,7 @@ function ProductsTab() {
       unit: 'un',
       price: 0,
       currentStock: 0,
-      minStock: 0,
-      image: ''
+      minStock: 0
     });
     setIsCustomCategory(false);
     setIsAddOpen(true);
@@ -661,19 +658,6 @@ function ProductsTab() {
     const suggested = generateNextProductCode(products);
     setNewProduct(prev => ({ ...prev, code: suggested }));
     toast.info(`Código sugerido: ${suggested}`);
-  };
-
-  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      try {
-        const compressed = await compressImage(file, 400, 400, 0.70);
-        setNewProduct(prev => ({ ...prev, image: compressed }));
-        toast.success('Imagem carregada com sucesso!');
-      } catch (err: any) {
-        toast.error(err?.message || 'Erro ao processar imagem.');
-      }
-    }
   };
 
   const handleAdd = async () => {
@@ -711,13 +695,13 @@ function ProductsTab() {
         price: Math.max(0, Number(newProduct.price) || 0),
         currentStock: Math.max(0, Number(newProduct.currentStock) || 0),
         minStock: Math.max(0, Number(newProduct.minStock) || 0),
-        image: newProduct.image || ''
+        image: ''
       });
 
       if (res && res.success) {
         toast.success(`Produto "${trimmedName}" cadastrado com sucesso!`);
         setIsAddOpen(false);
-        setNewProduct({ name: '', code: '', category: '', unit: 'un', price: 0, currentStock: 0, minStock: 0, image: '' });
+        setNewProduct({ name: '', code: '', category: '', unit: 'un', price: 0, currentStock: 0, minStock: 0 });
         setIsCustomCategory(false);
       } else {
         toast.error(res?.error || 'Erro ao cadastrar produto no banco de dados.');
@@ -799,7 +783,7 @@ function ProductsTab() {
           <Dialog open={isAddOpen} onOpenChange={(open) => {
             setIsAddOpen(open);
             if (!open) {
-              setNewProduct({ name: '', code: '', category: '', unit: 'un', price: 0, currentStock: 0, minStock: 0, image: '' });
+              setNewProduct({ name: '', code: '', category: '', unit: 'un', price: 0, currentStock: 0, minStock: 0 });
               setIsCustomCategory(false);
             }
           }}>
@@ -935,38 +919,6 @@ function ProductsTab() {
                     value={newProduct.minStock} 
                     onChange={e => setNewProduct({...newProduct, minStock: Math.max(0, parseInt(e.target.value) || 0)})} 
                   />
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold uppercase text-cyan-400 tracking-widest">Foto do Produto</Label>
-                <div className="flex items-center gap-4 p-3 bg-slate-950/60 rounded-lg border border-slate-800">
-                  <div className="w-16 h-16 rounded-md bg-slate-800 border border-slate-700 overflow-hidden flex items-center justify-center flex-shrink-0">
-                    {newProduct.image ? (
-                      <img src={newProduct.image} alt="Preview" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                    ) : (
-                      <Package size={24} className="text-slate-600" />
-                    )}
-                  </div>
-                  <div className="flex-1 space-y-2">
-                    <Input 
-                      type="file" 
-                      accept="image/*" 
-                      onChange={handleImageChange} 
-                      className="h-10 text-xs bg-slate-800 border-slate-700 text-slate-300 file:bg-slate-700 file:text-white file:border-0 file:rounded file:px-2 file:py-1 file:mr-2 file:text-xs" 
-                    />
-                    {newProduct.image && (
-                      <Button 
-                        type="button" 
-                        variant="ghost" 
-                        size="sm" 
-                        onClick={() => setNewProduct({ ...newProduct, image: '' })}
-                        className="h-7 text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 px-2"
-                      >
-                        <Trash2 size={12} className="mr-1" /> Remover Imagem
-                      </Button>
-                    )}
-                  </div>
                 </div>
               </div>
             </div>
@@ -4798,18 +4750,36 @@ function ApprovalTab({ onNavigateToTab }: { onNavigateToTab?: (tab: string) => v
                                   </Button>
                                 }
                               />
-                              <DialogContent className="bg-slate-900 border-slate-800 text-white sm:max-w-2xl">
-                                <DialogHeader>
-                                  <DialogTitle>Analisar Pedido #{order.id.toUpperCase()}</DialogTitle>
+                              <DialogContent className="bg-slate-900 border-slate-800 text-white w-[96vw] sm:max-w-[96vw] xl:max-w-[1480px] max-h-[92vh] flex flex-col gap-3 p-5">
+                                <DialogHeader className="shrink-0 pr-8">
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <div className="flex flex-wrap items-center gap-2.5">
+                                      <DialogTitle className="text-lg font-bold">Analisar Pedido #{order.id.toUpperCase()}</DialogTitle>
+                                      {branch?.name && (
+                                        <Badge variant="outline" className="bg-slate-800/80 border-slate-700 text-cyan-300 text-xs font-semibold">
+                                          {branch.name}
+                                        </Badge>
+                                      )}
+                                      <Badge variant="outline" className="bg-cyan-500/10 border-cyan-500/30 text-cyan-400 text-xs font-bold">
+                                        {editItems.length} {editItems.length === 1 ? 'item' : 'itens'}
+                                      </Badge>
+                                      <Badge variant="outline" className="bg-emerald-500/10 border-emerald-500/30 text-emerald-400 text-xs font-bold">
+                                        Total: R$ {editItems.reduce((sum, it) => {
+                                          const prod = findProductHelper(products, it.productId);
+                                          return sum + (prod ? prod.price * it.quantity : 0);
+                                        }, 0).toFixed(2)}
+                                      </Badge>
+                                    </div>
+                                  </div>
                                   {isDiscrepancy && (
-                                    <p className="text-xs text-red-400 font-bold bg-red-400/10 p-2 rounded border border-red-400/20 flex items-center gap-2">
+                                    <p className="text-xs text-red-400 font-bold bg-red-400/10 p-2 rounded border border-red-400/20 flex items-center gap-2 mt-2">
                                       <FileCheck size={14} /> Este pedido foi gerado devido a uma divergência relatada.
                                     </p>
                                   )}
                                 </DialogHeader>
 
                                 {/* Item Multi-selection Header inside Modal */}
-                                <div className="flex items-center justify-between bg-slate-800/60 p-2.5 rounded-lg border border-slate-700/50 mt-2">
+                                <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-800/60 px-3 py-2 rounded-lg border border-slate-700/50 shrink-0">
                                   <label className="flex items-center gap-2 text-xs font-bold text-slate-300 cursor-pointer select-none">
                                     <input 
                                       type="checkbox"
@@ -4830,7 +4800,7 @@ function ApprovalTab({ onNavigateToTab }: { onNavigateToTab?: (tab: string) => v
                                     <Button
                                       size="sm"
                                       variant="destructive"
-                                      className="bg-red-600 hover:bg-red-500 text-white font-bold h-8 text-xs px-3 rounded-md shadow-sm transition-all"
+                                      className="bg-red-600 hover:bg-red-500 text-white font-bold h-7 text-xs px-3 rounded-md shadow-sm transition-all"
                                       onClick={() => {
                                         const remaining = editItems.filter(item => !selectedItemProductIds.includes(item.productId));
                                         setEditItems(remaining);
@@ -4851,45 +4821,67 @@ function ApprovalTab({ onNavigateToTab }: { onNavigateToTab?: (tab: string) => v
                                   )}
                                 </div>
 
-                                <div className="py-4 space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                                  {editItems.map((item, idx) => {
-                                    const product = findProductHelper(products, item.productId);
-                                    const isItemSelected = selectedItemProductIds.includes(item.productId);
-                                    return (
-                                      <div key={idx} className={`flex items-center gap-3 p-3 rounded-md border transition-all ${isItemSelected ? 'bg-red-950/30 border-red-800/50' : 'bg-slate-800/40 border-slate-700/30'}`}>
-                                        <input 
-                                          type="checkbox"
-                                          className="rounded border-slate-700 bg-slate-950 text-cyan-500 focus:ring-cyan-500 h-4 w-4 cursor-pointer"
-                                          checked={isItemSelected}
-                                          onChange={(e) => {
-                                            if (e.target.checked) {
-                                              setSelectedItemProductIds(prev => [...prev, item.productId]);
-                                            } else {
-                                              setSelectedItemProductIds(prev => prev.filter(id => id !== item.productId));
-                                            }
-                                          }}
-                                        />
-                                        <div className="flex-1 min-w-0">
-                                          <p className="font-bold text-white text-sm truncate">{getProductName(products, item.productId, product?.name)}</p>
-                                          <p className="text-xs text-slate-400 uppercase tracking-widest font-mono">{getProductCode(products, item.productId, product?.code)}</p>
-                                        </div>
-                                        <div className="w-24">
-                                          <Label className="text-[10px] text-slate-500 uppercase mb-1 block">Quantidade</Label>
-                                          <Input 
-                                            type="number" 
-                                            value={item.quantity} 
-                                            onChange={(e) => handleUpdateItem(item.productId, Number(e.target.value))}
-                                            className="bg-slate-950 border-slate-800 text-center font-bold text-cyan-400 h-9 text-sm"
+                                <div className="flex-1 min-h-0 overflow-y-auto pr-1 custom-scrollbar">
+                                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-2">
+                                    {editItems.map((item, idx) => {
+                                      const product = findProductHelper(products, item.productId);
+                                      const productName = getProductName(products, item.productId, product?.name);
+                                      const productCode = getProductCode(products, item.productId, product?.code);
+                                      const isItemSelected = selectedItemProductIds.includes(item.productId);
+                                      return (
+                                        <div
+                                          key={idx}
+                                          className={`flex items-center gap-2.5 px-2.5 py-2 rounded-md border transition-all ${
+                                            isItemSelected
+                                              ? 'bg-red-950/30 border-red-800/50'
+                                              : 'bg-slate-800/40 border-slate-700/40 hover:border-slate-600/70'
+                                          }`}
+                                        >
+                                          <input 
+                                            type="checkbox"
+                                            className="rounded border-slate-700 bg-slate-950 text-cyan-500 focus:ring-cyan-500 h-4 w-4 shrink-0 cursor-pointer"
+                                            checked={isItemSelected}
+                                            onChange={(e) => {
+                                              if (e.target.checked) {
+                                                setSelectedItemProductIds(prev => [...prev, item.productId]);
+                                              } else {
+                                                setSelectedItemProductIds(prev => prev.filter(id => id !== item.productId));
+                                              }
+                                            }}
                                           />
+                                          <div className="flex-1 min-w-0" title={productName}>
+                                            <p className="font-bold text-white text-xs leading-tight truncate">{productName}</p>
+                                            <div className="flex items-center gap-1.5 mt-0.5 text-[10px] font-mono text-slate-400">
+                                              <span className="text-cyan-400/90 font-semibold">{productCode}</span>
+                                              {product && (
+                                                <>
+                                                  <span>•</span>
+                                                  <span>Est: {product.currentStock}</span>
+                                                  <span>•</span>
+                                                  <span>R$ {(product.price * item.quantity).toFixed(2)}</span>
+                                                </>
+                                              )}
+                                            </div>
+                                          </div>
+                                          <div className="w-[74px] shrink-0">
+                                            <Input 
+                                              type="number" 
+                                              min="0"
+                                              aria-label={`Quantidade de ${productName}`}
+                                              value={item.quantity} 
+                                              onChange={(e) => handleUpdateItem(item.productId, Number(e.target.value))}
+                                              className="bg-slate-950 border-slate-800 text-center font-bold text-cyan-400 h-8 text-xs px-1.5"
+                                            />
+                                          </div>
                                         </div>
-                                      </div>
-                                    );
-                                  })}
+                                      );
+                                    })}
+                                  </div>
                                   {editItems.length === 0 && (
-                                    <p className="text-center py-6 text-slate-500 italic">Nenhum item restante no pedido.</p>
+                                    <p className="text-center py-8 text-slate-500 italic">Nenhum item restante no pedido.</p>
                                   )}
                                 </div>
-                                <DialogFooter className="border-t border-slate-800 pt-6 flex items-center justify-between gap-2">
+                                <DialogFooter className="border-t border-slate-800 pt-3 flex flex-wrap items-center justify-between gap-2 shrink-0">
                                   <Button 
                                     variant="outline" 
                                     className="bg-red-950/60 hover:bg-red-900/80 text-red-400 border-red-800/60 font-bold"

@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useRamoxContext } from '../services/RamoxContextComponent';
-import { productImageCache } from '../services/ramoxContext';
 import { Product } from '../types';
 import { 
   Dialog, 
@@ -19,9 +18,8 @@ import {
   SelectTrigger, 
   SelectValue 
 } from '@/components/ui/select';
-import { Edit, Package, Trash2, Save, RotateCw, Plus } from 'lucide-react';
+import { Edit, Save, RotateCw } from 'lucide-react';
 import { toast } from 'sonner';
-import { compressImage } from '../utils/imageUtils';
 
 interface EditProductModalProps {
   product: Product | null;
@@ -44,8 +42,7 @@ export function EditProductModal({
     unit: 'un',
     price: 0,
     currentStock: 0,
-    minStock: 0,
-    image: ''
+    minStock: 0
   });
   const [isSaving, setIsSaving] = useState(false);
   const [isCustomCategory, setIsCustomCategory] = useState(false);
@@ -59,29 +56,11 @@ export function EditProductModal({
         unit: product.unit || 'un',
         price: product.price ?? 0,
         currentStock: product.currentStock ?? 0,
-        minStock: product.minStock ?? 0,
-        image: product.image || productImageCache.get(product.id) || ''
+        minStock: product.minStock ?? 0
       });
       setIsCustomCategory(false);
     }
   }, [product, isOpen]);
-
-  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      try {
-        const compressed = await compressImage(file, 400, 400, 0.70);
-        setFormData(prev => ({ ...prev, image: compressed }));
-        toast.success('Imagem carregada com sucesso!');
-      } catch (err: any) {
-        toast.error(err?.message || 'Erro ao processar imagem.');
-      }
-    }
-  };
-
-  const handleRemoveImage = () => {
-    setFormData(prev => ({ ...prev, image: '' }));
-  };
 
   const handleSave = async () => {
     if (!product) return;
@@ -105,7 +84,7 @@ export function EditProductModal({
         price: Number(formData.price) || 0,
         currentStock: Number(formData.currentStock) || 0,
         minStock: Number(formData.minStock) || 0,
-        image: formData.image || ''
+        image: ''
       };
 
       const success = await updateProduct(product.id, payload);
@@ -270,45 +249,6 @@ export function EditProductModal({
                 value={formData.minStock}
                 onChange={e => setFormData({ ...formData, minStock: Math.max(0, parseInt(e.target.value) || 0) })}
               />
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label className="text-xs font-bold uppercase text-cyan-400 tracking-widest">
-              Foto do Produto
-            </Label>
-            <div className="flex items-center gap-4 p-3 bg-slate-950/60 rounded-lg border border-slate-800">
-              <div className="w-16 h-16 rounded-md bg-slate-800 border border-slate-700 overflow-hidden flex items-center justify-center flex-shrink-0">
-                {formData.image ? (
-                  <img
-                    src={formData.image}
-                    alt="Preview"
-                    className="w-full h-full object-cover"
-                    referrerPolicy="no-referrer"
-                  />
-                ) : (
-                  <Package size={24} className="text-slate-600" />
-                )}
-              </div>
-              <div className="flex-1 space-y-2">
-                <Input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleImageChange}
-                  className="h-10 text-xs bg-slate-800 border-slate-700 text-slate-300 file:bg-slate-700 file:text-white file:border-0 file:rounded file:px-2 file:py-1 file:mr-2 file:text-xs"
-                />
-                {formData.image && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleRemoveImage}
-                    className="h-7 text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 px-2"
-                  >
-                    <Trash2 size={12} className="mr-1" /> Remover Imagem
-                  </Button>
-                )}
-              </div>
             </div>
           </div>
         </div>

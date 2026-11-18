@@ -30,6 +30,7 @@ import {
   XCircle,
   RotateCw,
   MapPin,
+  Database
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -68,13 +69,16 @@ export default function App() {
     branchOrders = [],
     purchaseOrders = [],
     inventoryCounts = [],
-    refreshData
+    refreshData,
+    supabaseStatus,
+    supabaseErrorMessage
   } = useRamoxContext();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [expandedSections, setExpandedSections] = useState<string[]>([]);
   const [showVignette, setShowVignette] = useState<boolean>(false);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  const [dismissedQuotaBanner, setDismissedQuotaBanner] = useState<boolean>(false);
 
   const [lastLoggedInUserId, setLastLoggedInUserId] = useState<string | null>(null);
   const [showLoginPendingAlert, setShowLoginPendingAlert] = useState<boolean>(false);
@@ -172,14 +176,13 @@ export default function App() {
     const handleNavigate = (e: any) => {
       if (e.detail && typeof e.detail === 'string') {
         setActiveTab(e.detail);
-        if (refreshData) refreshData();
       }
     };
     window.addEventListener('navigate-tab', handleNavigate);
     return () => {
       window.removeEventListener('navigate-tab', handleNavigate);
     };
-  }, [refreshData]);
+  }, []);
 
   useEffect(() => {
     // Auto-collapse sidebar on mobile/tablet screens when active tab changes
@@ -369,7 +372,6 @@ export default function App() {
                   <div key={section.id} className="space-y-1">
                     <button
                       onClick={() => {
-                        if (refreshData) refreshData();
                         if (hasChildren) {
                           toggleSection(section.id);
                         } else {
@@ -400,7 +402,6 @@ export default function App() {
                             <button
                               key={child.id}
                               onClick={() => {
-                                if (refreshData) refreshData();
                                 setActiveTab(child.id);
                               }}
                               className={`sidebar-item w-full ml-4 w-[calc(100%-1rem)] py-2 text-sm ${activeTab === child.id ? 'active text-cyan-400' : 'text-slate-400 hover:text-slate-200'}`}
@@ -499,7 +500,46 @@ export default function App() {
         </header>
 
         {/* Content Area */}
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          {supabaseStatus === 'quota_exceeded' && !dismissedQuotaBanner && (
+            <div className="bg-amber-950/40 border border-amber-500/40 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-lg text-amber-200">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0 mt-0.5">
+                  <Database size={18} />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-amber-100 flex items-center gap-2">
+                    Limite de Tráfego do Supabase Atingido (exceed_egress_quota)
+                    <Badge variant="outline" className="border-amber-500/30 text-amber-300 bg-amber-500/10 text-[10px]">
+                      Dados 100% Seguros
+                    </Badge>
+                  </h4>
+                  <p className="text-xs text-amber-300/90 mt-1 leading-relaxed">
+                    Nenhum produto ou registro foi apagado do banco de dados. O projeto no Supabase excedeu temporariamente a cota de tráfego de saída gratuito. O sistema está operando em modo de contingência local com todos os seus dados preservados. Para reativar a nuvem, desative o Spend Cap no painel do Supabase ou configure um novo projeto.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 self-end md:self-center shrink-0">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setActiveTab('settings')}
+                  className="h-8 border-amber-500/40 hover:bg-amber-500/20 text-amber-200 text-xs font-semibold"
+                >
+                  Configurações
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setDismissedQuotaBanner(true)}
+                  className="h-8 text-amber-400 hover:text-amber-200 hover:bg-amber-500/10 text-xs"
+                >
+                  Entendi
+                </Button>
+              </div>
+            </div>
+          )}
+
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}

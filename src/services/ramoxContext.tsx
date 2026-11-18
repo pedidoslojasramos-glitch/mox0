@@ -163,64 +163,92 @@ export function reconcileDistributionOrders(currentState: any): any {
   return currentState;
 }
 
-// In-memory cache for product images to avoid pulling 30MB base64 payloads on every heartbeat
+export type SyncTable =
+  | 'branches'
+  | 'suppliers'
+  | 'products'
+  | 'users'
+  | 'branch_orders'
+  | 'purchase_orders'
+  | 'distributions'
+  | 'inventory_counts'
+  | 'branch_limits'
+  | 'app_settings';
+
+const ALL_SYNC_TABLES: SyncTable[] = [
+  'branches',
+  'suppliers',
+  'products',
+  'users',
+  'branch_orders',
+  'purchase_orders',
+  'distributions',
+  'inventory_counts',
+  'branch_limits',
+  'app_settings'
+];
+
+const OPERATIONAL_SYNC_TABLES: SyncTable[] = [
+  'products',
+  'branch_orders',
+  'purchase_orders',
+  'distributions',
+  'inventory_counts'
+];
+
+// Product photos disabled to keep database lightweight for free tier
 export const productImageCache = new Map<string, string>();
 
-export function getProductCachedImage(productId: string): string {
-  return productImageCache.get(productId) || productImageCache.get(toValidUUID(productId)) || '';
+export function getProductCachedImage(_productId: string): string {
+  return '';
 }
 
 export function useRamox() {
   const [state, setState] = useState(() => reconcileDistributionOrders(mockDb.get()));
   const [globalSearch, setGlobalSearch] = useState('');
+  const [supabaseStatus, setSupabaseStatus] = useState<'connected' | 'quota_exceeded' | 'error' | 'disconnected'>('connected');
+  const [supabaseErrorMessage, setSupabaseErrorMessage] = useState<string | null>(null);
   const isInitialLoadCompleteRef = useRef(false);
   const isFetchingRef = useRef(false);
-  const isHydratingImagesRef = useRef(false);
+  const lastQuotaHitRef = useRef<number>(0);
+  const lastSyncAtRef = useRef<number>(0);
+  const pendingTablesRef = useRef<Set<SyncTable>>(new Set());
+  const scheduledRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const hydrateMissingImages = async (client: any) => {
-    if (isHydratingImagesRef.current || !client) return;
-    isHydratingImagesRef.current = true;
-    try {
-      // Find up to 12 products that lack images and aren't in cache
-      const currentProds = state.products || [];
-      const needImages = currentProds.filter(p => !p.image && !productImageCache.get(p.id));
-      if (needImages.length === 0) return;
-
-      const batch = needImages.slice(0, 12).map(p => p.id);
-      const { data, error } = await client
-        .from('products')
-        .select('id, image')
-        .in('id', batch);
-
-      if (!error && Array.isArray(data)) {
-        let hasNew = false;
-        data.forEach((item: any) => {
-          if (item && item.id && item.image) {
-            productImageCache.set(item.id, item.image);
-            productImageCache.set(toValidUUID(item.id), item.image);
-            hasNew = true;
-          }
-        });
-
-        if (hasNew) {
-          setState(prev => ({
-            ...prev,
-            products: prev.products.map(p => {
-              const img = productImageCache.get(p.id) || productImageCache.get(toValidUUID(p.id));
-              return (img && !p.image) ? { ...p, image: img } : p;
-            })
-          }));
-        }
-      }
-    } catch (e) {
-      console.warn('Silent image hydration notice:', e);
-    } finally {
-      isHydratingImagesRef.current = false;
+  const scheduleTargetedRefresh = (tables: SyncTable[], delayMs = 900) => {
+    tables.forEach(t => pendingTablesRef.current.add(t));
+    if (scheduledRefreshTimerRef.current) {
+      clearTimeout(scheduledRefreshTimerRef.current);
     }
+    scheduledRefreshTimerRef.current = setTimeout(() => {
+      scheduledRefreshTimerRef.current = null;
+      const queued = Array.from(pendingTablesRef.current) as SyncTable[];
+      pendingTablesRef.current.clear();
+      if (queued.length > 0) {
+        refreshData({ tables: queued });
+      }
+    }, delayMs);
   };
 
-  const refreshData = async () => {
-    if (isFetchingRef.current) return;
+  const refreshData = async (options?: { tables?: SyncTable[]; force?: boolean }) => {
+    const tablesToFetch = options && Array.isArray(options.tables) && options.tables.length > 0
+      ? options.tables
+      : ALL_SYNC_TABLES;
+    const isFullSync = tablesToFetch.length === ALL_SYNC_TABLES.length;
+    const isManualForce = !options || options.force === true;
+    const shouldFetch = (t: SyncTable) => isFullSync || tablesToFetch.includes(t);
+
+    if (isFetchingRef.current) {
+      // Re-queue targeted tables so updates are never lost while another fetch is in flight
+      if (!isFullSync) {
+        scheduleTargetedRefresh(tablesToFetch, 1200);
+      }
+      return;
+    }
+    // Backoff if quota restricted to avoid hammering restricted project
+    if (!isManualForce && lastQuotaHitRef.current && Date.now() - lastQuotaHitRef.current < 120000) {
+      return;
+    }
     isFetchingRef.current = true;
 
     const client = getSupabase();
@@ -232,8 +260,11 @@ export function useRamox() {
         ...freshLocal,
         currentUser: prev.currentUser || freshLocal.currentUser
       }));
+      setSupabaseStatus('disconnected');
       return;
     }
+
+    const skipResult = Promise.resolve({ data: null, error: null });
 
     try {
       const [
@@ -248,20 +279,37 @@ export function useRamox() {
         { data: dbLimits, error: errLimits },
         { data: dbSettings, error: errSettings }
       ] = await Promise.all([
-        client.from('branches').select('*'),
-        client.from('suppliers').select('*'),
-        client.from('products').select('id, name, code, category, unit, price, current_stock, min_stock, created_at, updated_at'),
-        client.from('users').select('*'),
-        client.from('branch_orders').select('*'),
-        client.from('purchase_orders').select('*'),
-        client.from('distributions').select('*'),
-        client.from('inventory_counts').select('*'),
-        client.from('branch_limits').select('*'),
-        client.from('app_settings').select('*')
+        shouldFetch('branches') ? client.from('branches').select('*') : skipResult,
+        shouldFetch('suppliers') ? client.from('suppliers').select('*') : skipResult,
+        shouldFetch('products') ? client.from('products').select('id, name, code, category, unit, price, current_stock, min_stock, created_at, updated_at') : skipResult,
+        shouldFetch('users') ? client.from('users').select('*') : skipResult,
+        shouldFetch('branch_orders') ? client.from('branch_orders').select('*') : skipResult,
+        shouldFetch('purchase_orders') ? client.from('purchase_orders').select('*') : skipResult,
+        shouldFetch('distributions') ? client.from('distributions').select('*') : skipResult,
+        shouldFetch('inventory_counts') ? client.from('inventory_counts').select('*') : skipResult,
+        shouldFetch('branch_limits') ? client.from('branch_limits').select('*') : skipResult,
+        shouldFetch('app_settings') ? client.from('app_settings').select('*') : skipResult
       ]);
 
-      if (errProducts) console.warn('Supabase fetch products error:', errProducts);
-      if (errUsers) console.warn('Supabase fetch users error:', errUsers);
+      const allErrors = [errBranches, errSuppliers, errProducts, errUsers, errOrders, errPO, errDist, errCounts, errLimits, errSettings].filter(Boolean);
+      const isQuotaRestricted = allErrors.some((e: any) => 
+        e?.message?.includes('exceed_egress_quota') || 
+        e?.message?.includes('spend caps') ||
+        e?.message?.includes('restricted due to the following violations')
+      );
+
+      if (isQuotaRestricted) {
+        lastQuotaHitRef.current = Date.now();
+        setSupabaseStatus('quota_exceeded');
+        setSupabaseErrorMessage('O projeto Supabase atingiu o limite de transferência de dados (exceed_egress_quota). Os dados e tabelas NÃO foram deletados e continuam salvos com segurança no banco.');
+      } else if (allErrors.length > 0) {
+        setSupabaseStatus('error');
+        setSupabaseErrorMessage(allErrors[0]?.message || 'Erro ao sincronizar com o banco.');
+      } else {
+        setSupabaseStatus('connected');
+        setSupabaseErrorMessage(null);
+        lastQuotaHitRef.current = 0;
+      }
 
       setState(prev => {
         let updated = { ...prev };
@@ -291,27 +339,19 @@ export function useRamox() {
         }
 
         if (!errProducts && Array.isArray(dbProducts)) {
-          const existingMap = new Map<string, Product>((prev.products || []).map(p => [p.id, p]));
           updated.products = dbProducts
             .filter((p: any) => p && p.id && !isDeleted(p.id))
-            .map((p: any) => {
-              const existing: Product | undefined = existingMap.get(p.id) || existingMap.get(toValidUUID(p.id));
-              const cachedImg = productImageCache.get(p.id) || productImageCache.get(toValidUUID(p.id)) || existing?.image || '';
-              if (cachedImg) {
-                productImageCache.set(p.id, cachedImg);
-              }
-              return {
-                id: p.id,
-                name: p.name,
-                code: p.code,
-                category: p.category,
-                unit: p.unit,
-                price: Number(p.price) || 0,
-                currentStock: p.current_stock ?? p.currentStock ?? 0,
-                minStock: p.min_stock ?? p.minStock ?? 0,
-                image: cachedImg
-              };
-            });
+            .map((p: any) => ({
+              id: p.id,
+              name: p.name,
+              code: p.code,
+              category: p.category,
+              unit: p.unit,
+              price: Number(p.price) || 0,
+              currentStock: p.current_stock ?? p.currentStock ?? 0,
+              minStock: p.min_stock ?? p.minStock ?? 0,
+              image: ''
+            }));
         }
 
         if (!errUsers && Array.isArray(dbUsers)) {
@@ -518,6 +558,7 @@ export function useRamox() {
           }
         }
 
+        mockDb.save(updated);
         return updated;
       });
     } catch (e) {
@@ -525,30 +566,41 @@ export function useRamox() {
     } finally {
       isInitialLoadCompleteRef.current = true;
       isFetchingRef.current = false;
-      const client = getSupabase();
-      if (client) {
-        hydrateMissingImages(client).catch(() => {});
-      }
+      lastSyncAtRef.current = Date.now();
     }
   };
 
   // 1. Initial fetch from database
   useEffect(() => {
-    refreshData();
+    refreshData({ tables: ALL_SYNC_TABLES, force: true });
   }, []);
 
-  // 2. Realtime subscription + Polling Heartbeat (every 25 seconds as safety net, while Realtime does instant push)
+  // 2. Targeted Realtime subscription + Visibility-aware Operational Heartbeat (every 3 minutes)
   useEffect(() => {
     const heartbeat = setInterval(() => {
-      refreshData();
-    }, 25000);
+      if (typeof document !== 'undefined' && document.hidden) {
+        return;
+      }
+      if (lastQuotaHitRef.current && Date.now() - lastQuotaHitRef.current < 180000) {
+        return;
+      }
+      if (Date.now() - lastSyncAtRef.current < 60000) {
+        return;
+      }
+      refreshData({ tables: OPERATIONAL_SYNC_TABLES });
+    }, 180000);
 
     const handleFocus = () => {
-      refreshData();
+      if (typeof document !== 'undefined' && document.hidden) return;
+      if (lastQuotaHitRef.current && Date.now() - lastQuotaHitRef.current < 120000) return;
+      // Cooldown: do not re-fetch if synced within the last 60 seconds
+      if (Date.now() - lastSyncAtRef.current < 60000) return;
+      refreshData({ tables: OPERATIONAL_SYNC_TABLES });
     };
 
     const handleRefreshReq = () => {
-      refreshData();
+      lastQuotaHitRef.current = 0;
+      refreshData({ tables: ALL_SYNC_TABLES, force: true });
     };
 
     window.addEventListener('focus', handleFocus);
@@ -556,15 +608,16 @@ export function useRamox() {
 
     const client = getSupabase();
     let channel: any = null;
-    let debounceTimer: any = null;
     if (client) {
       try {
         channel = client.channel('ramox-realtime-db-sync')
-          .on('postgres_changes', { event: '*', schema: 'public' }, () => {
-            if (debounceTimer) clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(() => {
-              refreshData();
-            }, 600);
+          .on('postgres_changes', { event: '*', schema: 'public' }, (payload: any) => {
+            const changedTable = payload?.table as SyncTable | undefined;
+            if (changedTable && ALL_SYNC_TABLES.includes(changedTable)) {
+              scheduleTargetedRefresh([changedTable], 1000);
+            } else {
+              scheduleTargetedRefresh(OPERATIONAL_SYNC_TABLES, 1000);
+            }
           })
           .subscribe();
       } catch (e) {
@@ -574,7 +627,7 @@ export function useRamox() {
 
     return () => {
       clearInterval(heartbeat);
-      if (debounceTimer) clearTimeout(debounceTimer);
+      if (scheduledRefreshTimerRef.current) clearTimeout(scheduledRefreshTimerRef.current);
       window.removeEventListener('focus', handleFocus);
       window.removeEventListener('ramox-refresh-requested', handleRefreshReq);
       if (client && channel) {
@@ -716,7 +769,7 @@ export function useRamox() {
       price: Math.max(0, Number(product.price) || 0),
       current_stock: Math.max(0, Number(product.currentStock) || 0),
       min_stock: Math.max(0, Number(product.minStock) || 0),
-      image: product.image || '',
+      image: '',
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
@@ -730,13 +783,8 @@ export function useRamox() {
       price: payload.price,
       currentStock: payload.current_stock,
       minStock: payload.min_stock,
-      image: payload.image
+      image: ''
     };
-
-    if (payload.image) {
-      productImageCache.set(newId, payload.image);
-      productImageCache.set(toValidUUID(newId), payload.image);
-    }
 
     // Optimistically update local state immediately
     setState(prev => {
@@ -780,10 +828,7 @@ export function useRamox() {
           products: prev.products.map(p => p.id === newId ? savedProd : p)
         }));
 
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('ramox-refresh-requested'));
-        }
-        refreshData().catch(() => {});
+        scheduleTargetedRefresh(['products']);
         return { success: true, product: savedProd };
       } catch (e: any) {
         console.warn('Supabase addProduct exception:', e);
@@ -819,7 +864,7 @@ export function useRamox() {
         price: Math.max(0, Number(p.price) || 0),
         current_stock: Math.max(0, Number(p.currentStock) || 0),
         min_stock: Math.max(0, Number(p.minStock) || 0),
-        image: p.image || '',
+        image: '',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
@@ -834,7 +879,7 @@ export function useRamox() {
         price: payload.price,
         currentStock: payload.current_stock,
         minStock: payload.min_stock,
-        image: payload.image
+        image: ''
       });
     }
 
@@ -850,10 +895,7 @@ export function useRamox() {
           console.warn('Supabase bulkAddProducts upsert by code error:', error);
           await client.from('products').upsert(payloads);
         }
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('ramox-refresh-requested'));
-        }
-        await refreshData();
+        scheduleTargetedRefresh(['products']);
       } catch (e) {
         console.warn('Supabase bulkAddProducts err:', e);
       }
@@ -881,7 +923,7 @@ export function useRamox() {
           if (targetProduct?.name) {
             await client.from('products').delete().eq('name', targetProduct.name);
           }
-          refreshData();
+          scheduleTargetedRefresh(['products']);
         } catch (e) {
           console.warn('Supabase delete product err:', e);
         }
@@ -892,17 +934,10 @@ export function useRamox() {
   const updateProduct = async (id: string, updates: Partial<Product>): Promise<boolean> => {
     const cleanId = (id || '').trim();
     const productToUpdate = findProductHelper(state.products, cleanId);
-
-    if (updates.image) {
-      productImageCache.set(cleanId, updates.image);
-      productImageCache.set(toValidUUID(cleanId), updates.image);
-      if (productToUpdate) {
-        productImageCache.set(productToUpdate.id, updates.image);
-      }
-    }
+    const sanitizedUpdates: Partial<Product> = { ...updates, image: '' };
 
     setState(prev => {
-      const newCategory = updates.category?.trim();
+      const newCategory = sanitizedUpdates.category?.trim();
       const updatedCats = newCategory && !prev.productClassifications?.includes(newCategory)
         ? [...(prev.productClassifications || []), newCategory].sort()
         : prev.productClassifications;
@@ -915,7 +950,7 @@ export function useRamox() {
                         toValidUUID(p.id) === toValidUUID(cleanId) || 
                         (productToUpdate && p.id === productToUpdate.id) ||
                         (p.code && p.code.toLowerCase().trim() === cleanId.toLowerCase());
-          return match ? { ...p, ...updates } : p;
+          return match ? { ...p, ...sanitizedUpdates } : p;
         })
       };
     });
@@ -925,7 +960,7 @@ export function useRamox() {
       try {
         const prod = productToUpdate || findProductHelper(state.products, cleanId);
         if (prod) {
-          const updated = { ...prod, ...updates };
+          const updated = { ...prod, ...sanitizedUpdates };
           const payload: any = {
             name: (updated.name || '').trim(),
             code: (updated.code || '').trim().toUpperCase(),
@@ -934,7 +969,7 @@ export function useRamox() {
             price: Math.max(0, Number(updated.price) || 0),
             current_stock: Math.max(0, Number(updated.currentStock) || 0),
             min_stock: Math.max(0, Number(updated.minStock) || 0),
-            image: updated.image || '',
+            image: '',
             updated_at: new Date().toISOString()
           };
 
@@ -945,10 +980,7 @@ export function useRamox() {
             await client.from('products').update(payload).eq('id', validUuid);
           }
 
-          if (typeof window !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('ramox-refresh-requested'));
-          }
-          refreshData().catch(() => {});
+          scheduleTargetedRefresh(['products']);
           return true;
         }
       } catch (e) {
@@ -979,7 +1011,7 @@ export function useRamox() {
             contact: newSupplier.contact || ''
           };
           await client.from('suppliers').upsert(payload);
-          refreshData();
+          scheduleTargetedRefresh(['suppliers']);
         } catch (e) {
           console.warn('Supabase addSupplier err:', e);
         }
@@ -1008,7 +1040,7 @@ export function useRamox() {
           if (targetSupplier?.name) {
             await client.from('suppliers').delete().eq('name', targetSupplier.name);
           }
-          refreshData();
+          scheduleTargetedRefresh(['suppliers']);
         } catch (e) {
           console.warn('Supabase delete supplier err:', e);
         }
@@ -1046,7 +1078,7 @@ export function useRamox() {
             items: items,
             created_at: newOrder.createdAt
           });
-          refreshData();
+          scheduleTargetedRefresh(['purchase_orders']);
         } catch (e) {
           console.warn('Supabase createPurchaseOrder err:', e);
         }
@@ -1108,7 +1140,7 @@ export function useRamox() {
               }
             }
           }
-          refreshData();
+          scheduleTargetedRefresh(status === 'received' ? ['purchase_orders', 'products'] : ['purchase_orders']);
         } catch (e) {
           console.warn('Supabase update purchase order status err:', e);
         }
@@ -1213,7 +1245,7 @@ export function useRamox() {
             max_order_budget: maxOrderBudget,
             product_monthly_limits: productMonthlyLimits
           }, { onConflict: 'branch_id' });
-          refreshData();
+          scheduleTargetedRefresh(['branch_limits']);
         } catch (e) {
           console.warn('Supabase saveBranchLimits err:', e);
         }
@@ -1300,7 +1332,7 @@ export function useRamox() {
               }
             }
           }
-          refreshData();
+          scheduleTargetedRefresh(status !== 'rejected' ? ['branch_orders', 'products'] : ['branch_orders']);
         } catch (e) {
           console.warn('Supabase createBranchOrder err:', e);
         }
@@ -1393,7 +1425,7 @@ export function useRamox() {
               }
             }
           }
-          refreshData();
+          scheduleTargetedRefresh(['branch_orders', 'products']);
         } catch (e) {
           console.warn('Supabase update branch order status err:', e);
         }
@@ -1462,7 +1494,7 @@ export function useRamox() {
               client.from('branch_orders').update(updatePayload).eq('id', id)
             ]);
           }
-          refreshData();
+          scheduleTargetedRefresh(status === 'rejected' ? ['branch_orders', 'products'] : ['branch_orders']);
         } catch (e) {
           console.warn('Supabase batch update branch orders err:', e);
         }
@@ -1514,7 +1546,7 @@ export function useRamox() {
             client.from('branch_orders').delete().eq('id', targetId),
             client.from('branch_orders').delete().eq('id', id)
           ]);
-          refreshData();
+          scheduleTargetedRefresh(['branch_orders', 'products']);
         } catch (e) {
           console.warn('Supabase delete branch order err:', e);
         }
@@ -1752,39 +1784,102 @@ export function useRamox() {
     }
   };
 
-  // Branches
-  const addBranch = (branch: Omit<Branch, 'id'>) => {
-    const newBranch = { ...branch, id: crypto.randomUUID() };
-    unmarkAsDeleted(newBranch.id, toValidUUID(newBranch.id));
+  // Branches (Supabase-authoritative: only update UI state if DB write succeeds)
+  const addBranch = async (branch: Omit<Branch, 'id'>): Promise<{ success: boolean; error?: string; branch?: Branch }> => {
+    const cleanName = (branch.name || '').trim();
+    const cleanLocation = (branch.location || '').trim();
+    const cleanManager = (branch.manager || '').trim();
+
+    if (!cleanName) {
+      return { success: false, error: 'O nome da filial é obrigatório.' };
+    }
+
+    const rawId = typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random()}`;
+    const canonicalId = toValidUUID(rawId);
+
+    const newBranch: Branch = {
+      id: canonicalId,
+      name: cleanName,
+      location: cleanLocation,
+      manager: cleanManager
+    };
+
+    const client = getSupabase();
+    if (client) {
+      try {
+        const payload = {
+          id: canonicalId,
+          name: newBranch.name,
+          location: newBranch.location,
+          manager: newBranch.manager
+        };
+        const { error } = await client.from('branches').upsert(payload);
+        if (error) {
+          console.warn('Supabase addBranch err:', error);
+          return { success: false, error: error.message || 'Erro ao salvar filial no banco de dados.' };
+        }
+      } catch (e: any) {
+        console.warn('Supabase addBranch err:', e);
+        return { success: false, error: e?.message || 'Erro de comunicação ao salvar filial no banco.' };
+      }
+    }
+
+    unmarkAsDeleted(newBranch.id, canonicalId);
     setState(prev => {
       const updatedState = { ...prev, branches: [...prev.branches, newBranch] };
       mockDb.save(updatedState);
       return updatedState;
     });
 
-    const client = getSupabase();
     if (client) {
-      (async () => {
-        try {
-          const payload = {
-            id: toValidUUID(newBranch.id),
-            name: newBranch.name,
-            location: newBranch.location || '',
-            manager: newBranch.manager || ''
-          };
-          await client.from('branches').upsert(payload);
-        } catch (e) {
-          console.warn('Supabase addBranch err:', e);
-        }
-      })();
+      scheduleTargetedRefresh(['branches']);
     }
+
+    return { success: true, branch: newBranch };
   };
 
-  const bulkAddBranches = (newBranchesList: Omit<Branch, 'id'>[]) => {
-    const createdBranches = newBranchesList.map(b => ({
-      ...b,
-      id: crypto.randomUUID()
-    }));
+  const bulkAddBranches = async (newBranchesList: Omit<Branch, 'id'>[]): Promise<{ success: boolean; error?: string; count?: number }> => {
+    const createdBranches: Branch[] = (newBranchesList || [])
+      .filter(b => b && (b.name || '').trim())
+      .map(b => {
+        const rawId = typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random()}`;
+        return {
+          ...b,
+          id: toValidUUID(rawId),
+          name: (b.name || '').trim(),
+          location: (b.location || '').trim(),
+          manager: (b.manager || '').trim()
+        };
+      });
+
+    if (createdBranches.length === 0) {
+      return { success: false, error: 'Nenhuma filial válida encontrada para importar.' };
+    }
+
+    const client = getSupabase();
+    if (client) {
+      try {
+        const payload = createdBranches.map(b => ({
+          id: toValidUUID(b.id),
+          name: b.name,
+          location: b.location || '',
+          manager: b.manager || ''
+        }));
+        const { error } = await client.from('branches').upsert(payload);
+        if (error) {
+          console.warn('Supabase bulkAddBranches err:', error);
+          return { success: false, error: error.message || 'Erro ao importar filiais no banco de dados.' };
+        }
+      } catch (e: any) {
+        console.warn('Supabase bulkAddBranches err:', e);
+        return { success: false, error: e?.message || 'Erro de comunicação ao importar filiais.' };
+      }
+    }
+
     createdBranches.forEach(b => unmarkAsDeleted(b.id, toValidUUID(b.id)));
 
     setState(prev => {
@@ -1793,27 +1888,36 @@ export function useRamox() {
       return updatedState;
     });
 
-    const client = getSupabase();
     if (client) {
-      (async () => {
-        try {
-          const payload = createdBranches.map(b => ({
-            id: toValidUUID(b.id),
-            name: b.name,
-            location: b.location || '',
-            manager: b.manager || ''
-          }));
-          await client.from('branches').upsert(payload);
-        } catch (e) {
-          console.warn('Supabase bulkAddBranches err:', e);
-        }
-      })();
+      scheduleTargetedRefresh(['branches']);
     }
+
+    return { success: true, count: createdBranches.length };
   };
 
-  const deleteBranch = (id: string) => {
+  const deleteBranch = async (id: string): Promise<{ success: boolean; error?: string }> => {
     const targetBranch = state.branches.find(b => b.id === id || b.name === id);
     const targetId = toValidUUID(id);
+
+    const client = getSupabase();
+    if (client) {
+      try {
+        const { error } = await client.from('branches').delete().eq('id', targetId);
+        if (error) {
+          console.warn('Supabase delete branch err:', error);
+          return { success: false, error: error.message || 'Erro ao excluir filial no banco de dados.' };
+        }
+        if (id !== targetId) {
+          const { error: errRaw } = await client.from('branches').delete().eq('id', id);
+          if (errRaw) {
+            console.warn('Supabase delete raw branch id err:', errRaw);
+          }
+        }
+      } catch (e: any) {
+        console.warn('Supabase delete branch err:', e);
+        return { success: false, error: e?.message || 'Erro de comunicação ao excluir filial.' };
+      }
+    }
 
     markAsDeleted(id, targetId);
     if (targetBranch) {
@@ -1823,26 +1927,17 @@ export function useRamox() {
     setState(prev => {
       const updated = {
         ...prev,
-        branches: prev.branches.filter(b => b.id !== id && b.id !== targetId && (targetBranch ? b.name !== targetBranch.name : true))
+        branches: prev.branches.filter(b => b.id !== id && b.id !== targetId && (targetBranch ? b.id !== targetBranch.id : true))
       };
       mockDb.save(updated);
       return updated;
     });
 
-    const client = getSupabase();
     if (client) {
-      (async () => {
-        try {
-          await client.from('branches').delete().eq('id', targetId);
-          await client.from('branches').delete().eq('id', id);
-          if (targetBranch?.name) {
-            await client.from('branches').delete().eq('name', targetBranch.name);
-          }
-        } catch (e) {
-          console.warn('Supabase delete branch err:', e);
-        }
-      })();
+      scheduleTargetedRefresh(['branches']);
     }
+
+    return { success: true };
   };
 
   // Settings
@@ -1858,7 +1953,7 @@ export function useRamox() {
               value: updated,
               updated_at: new Date().toISOString()
             }, { onConflict: 'key' });
-            refreshData();
+            scheduleTargetedRefresh(['app_settings']);
           } catch (e) {
             console.warn('Supabase updateSettings err:', e);
           }
@@ -1889,7 +1984,7 @@ export function useRamox() {
             value: updated,
             updated_at: new Date().toISOString()
           }, { onConflict: 'key' });
-          refreshData();
+          scheduleTargetedRefresh(['app_settings']);
         } catch (e) {
           console.warn('Supabase addProductClassification err:', e);
         }
@@ -1915,7 +2010,7 @@ export function useRamox() {
             value: updated,
             updated_at: new Date().toISOString()
           }, { onConflict: 'key' });
-          refreshData();
+          scheduleTargetedRefresh(['app_settings']);
         } catch (e) {
           console.warn('Supabase deleteProductClassification err:', e);
         }
@@ -1957,7 +2052,7 @@ export function useRamox() {
             status: 'pending',
             warehouse_quantity_at_request: product.currentStock
           });
-          refreshData();
+          scheduleTargetedRefresh(['inventory_counts']);
         } catch (e) {
           console.warn('Supabase requestInventoryCount err:', e);
         }
@@ -1995,7 +2090,7 @@ export function useRamox() {
             warehouse_quantity_at_request: c.warehouseQuantityAtRequest
           }));
           await client.from('inventory_counts').upsert(rows);
-          refreshData();
+          scheduleTargetedRefresh(['inventory_counts']);
         } catch (e) {
           console.warn('Supabase requestGeneralInventoryCount err:', e);
         }
@@ -2034,7 +2129,7 @@ export function useRamox() {
             client.from('products').update({ current_stock: quantity }).eq('id', toValidUUID(count.productId)),
             client.from('products').update({ current_stock: quantity }).eq('id', count.productId)
           ]);
-          refreshData();
+          scheduleTargetedRefresh(['inventory_counts', 'products']);
         } catch (e) {
           console.warn('Supabase completeInventoryCount err:', e);
         }
@@ -2059,7 +2154,7 @@ export function useRamox() {
             client.from('inventory_counts').delete().eq('id', targetCountId),
             client.from('inventory_counts').delete().eq('id', countId)
           ]);
-          refreshData();
+          scheduleTargetedRefresh(['inventory_counts']);
         } catch (e) {
           console.warn('Supabase cancelInventoryCount err:', e);
         }
@@ -2078,7 +2173,7 @@ export function useRamox() {
       (async () => {
         try {
           await client.from('inventory_counts').delete().eq('status', 'pending');
-          refreshData();
+          scheduleTargetedRefresh(['inventory_counts']);
         } catch (e) {
           console.warn('Supabase cancelAllPendingInventoryCounts err:', e);
         }
@@ -2273,7 +2368,7 @@ export function useRamox() {
               }
             }
           }
-          refreshData();
+          scheduleTargetedRefresh(['distributions', 'branch_orders', 'products']);
         } catch (e) {
           console.warn('Supabase createDistribution sync err:', e);
         }
@@ -2285,6 +2380,7 @@ export function useRamox() {
     const targetUUID = toValidUUID(id);
 
     let updatedProductsList: Product[] | null = null;
+    const changedProductIds = new Set<string>();
 
     setState(prev => {
       const order = prev.branchOrders.find(o => 
@@ -2311,10 +2407,13 @@ export function useRamox() {
             const oldQty = oldMap.get(p.id) || 0;
             const newQty = newMap.get(p.id) || 0;
             const diff = oldQty - newQty; // positive diff means return to stock, negative means deduct
-            return {
-              ...p,
-              currentStock: Math.max(0, p.currentStock + diff)
-            };
+            if (diff !== 0) {
+              changedProductIds.add(p.id);
+              return {
+                ...p,
+                currentStock: Math.max(0, p.currentStock + diff)
+              };
+            }
           }
           return p;
         });
@@ -2353,12 +2452,15 @@ export function useRamox() {
             await client.from('branch_orders').update({ items, total_value: totalValue }).eq('id', id);
           }
 
-          if (updatedProductsList) {
-            for (const prod of (updatedProductsList as Product[])) {
-              await client.from('products').update({ current_stock: prod.currentStock }).eq('id', toValidUUID(prod.id));
-            }
+          if (updatedProductsList && changedProductIds.size > 0) {
+            const prodsToUpdate = (updatedProductsList as Product[]).filter(p => changedProductIds.has(p.id));
+            await Promise.all(
+              prodsToUpdate.map(prod =>
+                client.from('products').update({ current_stock: prod.currentStock }).eq('id', toValidUUID(prod.id))
+              )
+            );
           }
-          refreshData();
+          scheduleTargetedRefresh(changedProductIds.size > 0 ? ['branch_orders', 'products'] : ['branch_orders']);
         } catch (e) {
           console.warn('Supabase update branch order items err:', e);
         }
@@ -2395,7 +2497,7 @@ export function useRamox() {
             client.from('branch_orders').update({ items, total_value: totalValue, status: 'discrepancy' }).eq('id', targetUUID),
             client.from('branch_orders').update({ items, total_value: totalValue, status: 'discrepancy' }).eq('id', id)
           ]);
-          refreshData();
+          scheduleTargetedRefresh(['branch_orders']);
         } catch (e) {
           console.warn('Supabase reportOrderDiscrepancy err:', e);
         }
@@ -2412,7 +2514,7 @@ export function useRamox() {
           value: updatedRoutes,
           updated_at: new Date().toISOString()
         }, { onConflict: 'key' });
-        refreshData();
+        scheduleTargetedRefresh(['app_settings']);
       } catch (e) {
         console.warn('Supabase syncRoutes err:', e);
       }
@@ -2533,6 +2635,8 @@ export function useRamox() {
     globalSearch,
     setGlobalSearch,
     refreshData,
+    supabaseStatus,
+    supabaseErrorMessage,
     resetDb: mockDb.reset
   };
 }

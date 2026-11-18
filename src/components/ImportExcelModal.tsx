@@ -294,7 +294,7 @@ export default function ImportExcelModal({
     }
   };
 
-  const handleConfirmImport = () => {
+  const handleConfirmImport = async () => {
     const validRows = parsedRows.filter((r) => r.isValid).map((r) => r.data);
 
     if (validRows.length === 0) {
@@ -330,8 +330,12 @@ export default function ImportExcelModal({
         location: b.location,
         manager: b.manager,
       }));
-      bulkAddBranches(formattedBranches);
-      toast.success(`${formattedBranches.length} filiais cadastradas com sucesso!`);
+      const res = await bulkAddBranches(formattedBranches);
+      if (!res.success) {
+        toast.error(`Erro ao salvar filiais no banco: ${res.error || 'Verifique a conexão com o Supabase.'}`);
+        return;
+      }
+      toast.success(`${formattedBranches.length} filiais cadastradas no banco de dados com sucesso!`);
     } else if (type === 'limits') {
       const branchUpdates: { [branchId: string]: { budget: number; productLimits: { [pId: string]: number } } } = {};
 

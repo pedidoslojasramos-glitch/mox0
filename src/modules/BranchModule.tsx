@@ -470,14 +470,20 @@ export default function BranchModule({ initialTab }: { initialTab?: string }) {
                           ${inCartQty > 0 ? 'border-cyan-500/40 ring-1 ring-cyan-500/20' : 'border-slate-800'}
                         `}
                       >
-                        <div className="aspect-[4/3] relative overflow-hidden bg-slate-950">
-                          <img 
-                            src={product.image || `https://picsum.photos/seed/${product.code}/300/225`} 
-                            alt={product.name}
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
-                            referrerPolicy="no-referrer"
-                          />
-                          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent opacity-60" />
+                        <div className="h-24 relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 flex items-center justify-center border-b border-slate-800/80">
+                          {product.image ? (
+                            <img 
+                              src={product.image} 
+                              alt={product.name}
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+                              referrerPolicy="no-referrer"
+                            />
+                          ) : (
+                            <div className="w-12 h-12 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center justify-center text-cyan-500/50 group-hover:text-cyan-400 group-hover:border-cyan-500/30 transition-all">
+                              <Package size={24} />
+                            </div>
+                          )}
+                          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/60 via-transparent to-transparent opacity-60 pointer-events-none" />
                           <div className="absolute top-2 left-2">
                             <Badge className="bg-slate-950/90 backdrop-blur-md border-slate-800 text-[10px] font-bold py-0.5 min-w-[30px] flex items-center justify-center">
                               {product.unit}
@@ -579,7 +585,13 @@ export default function BranchModule({ initialTab }: { initialTab?: string }) {
                         return (
                           <TableRow key={product.id} className={`border-b border-slate-800/50 hover:bg-slate-800/30 transition-all ${inCartQty > 0 ? 'bg-cyan-500/5' : ''}`}>
                             <TableCell className="pl-6">
-                              <img src={product.image} className="w-10 h-10 rounded-lg object-cover border border-slate-800" referrerPolicy="no-referrer" />
+                              <div className="w-10 h-10 rounded-lg bg-slate-950 border border-slate-800 overflow-hidden flex items-center justify-center text-slate-600">
+                                {product.image ? (
+                                  <img src={product.image} alt={product.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                ) : (
+                                  <Package size={16} />
+                                )}
+                              </div>
                             </TableCell>
                             <TableCell>
                               <div className="flex items-center gap-2">

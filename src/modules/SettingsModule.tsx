@@ -24,7 +24,9 @@ import {
   Copy,
   Terminal,
   Pencil,
-  Check
+  Check,
+  Sparkles,
+  RefreshCw
 } from 'lucide-react';
 import { LOJAS_RAMOS_LOGOS, DEFAULT_LOJAS_RAMOS_LOGO } from '../utils/lojasRamosLogos';
 import { 
@@ -79,7 +81,12 @@ export default function SettingsModule() {
     deleteBranch,
     productClassifications,
     addProductClassification,
-    deleteProductClassification
+    deleteProductClassification,
+    refreshData,
+    products,
+    suppliers,
+    branchOrders,
+    purchaseOrders
   } = useRamoxContext();
   
   const [newClassification, setNewClassification] = useState('');
@@ -87,32 +94,64 @@ export default function SettingsModule() {
   const [currentBranchesPage, setCurrentBranchesPage] = useState(1);
   const [currentClassificationsPage, setCurrentClassificationsPage] = useState(1);
 
+  const totalBranchesPages = Math.max(1, Math.ceil(branches.length / 15));
+  const safeBranchesPage = Math.min(currentBranchesPage, totalBranchesPages);
   const paginatedUsers = users.slice((currentUsersPage - 1) * 15, currentUsersPage * 15);
-  const paginatedBranches = branches.slice((currentBranchesPage - 1) * 15, currentBranchesPage * 15);
+  const paginatedBranches = branches.slice((safeBranchesPage - 1) * 15, safeBranchesPage * 15);
   const paginatedClassifications = (productClassifications || []).slice((currentClassificationsPage - 1) * 15, currentClassificationsPage * 15);
   const initialSupabaseConfig = getSupabaseConfig();
   const [supabaseUrlInput, setSupabaseUrlInput] = useState(initialSupabaseConfig.url);
   const [supabaseKeyInput, setSupabaseKeyInput] = useState(initialSupabaseConfig.key);
   const [isSyncingSupabase, setIsSyncingSupabase] = useState(false);
+  const [isSavingBranch, setIsSavingBranch] = useState(false);
+  const [isRefreshingBranches, setIsRefreshingBranches] = useState(false);
 
-  const {
-    products,
-    suppliers,
-    branchOrders,
-    purchaseOrders
-  } = useRamoxContext();
+  const [stripBase64OnSync, setStripBase64OnSync] = useState(true);
 
-  const handleSaveSupabaseConfig = (e: React.FormEvent) => {
+  const handleExportFullBackupJson = () => {
+    try {
+      const backupData = {
+        exportedAt: new Date().toISOString(),
+        branches,
+        suppliers,
+        products: products.map(p => ({
+          ...p,
+          image: stripBase64OnSync ? '' : p.image
+        })),
+        users,
+        branchOrders,
+        purchaseOrders,
+        productClassifications,
+        settings
+      };
+      const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `backup_completo_ramox_lojas_ramos_${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast.success('Backup completo (JSON) baixado com sucesso!');
+    } catch (e: any) {
+      toast.error('Erro ao exportar backup: ' + (e?.message || ''));
+    }
+  };
+
+  const handleSaveSupabaseConfig = async (e: React.FormEvent) => {
     e.preventDefault();
     if (supabaseKeyInput && (supabaseKeyInput.startsWith('sb_secret_') || supabaseKeyInput.includes('service_role'))) {
       toast.error('Chaves secretas (sb_secret_) não podem ser usadas no navegador! Substitua pela Chave Publishable (sb_publishable_). Usando a chave publishable padrão.');
       const pubKey = 'sb_publishable_JRZTn4DC13sU9c4e9uqKhg_M4H1rnoS';
       setSupabaseKeyInput(pubKey);
       saveSupabaseConfig(supabaseUrlInput, pubKey);
+      await refreshData({ force: true });
       return;
     }
     saveSupabaseConfig(supabaseUrlInput, supabaseKeyInput);
-    toast.success('Credenciais do Supabase salvas com sucesso!');
+    await refreshData({ force: true });
+    toast.success('Credenciais do Supabase salvas e dados recarregados do banco!');
   };
 
   const handleTestSupabaseConnection = async () => {
@@ -144,9 +183,14 @@ export default function SettingsModule() {
       });
 
       if (errors.length === 0) {
-        toast.success('Conexão e tabelas do Supabase verificadas com sucesso! Todas as 6 tabelas estão acessíveis.');
+        toast.success('Conexão e tabelas do Supabase verificadas com sucesso! Todas as tabelas estão acessíveis.');
       } else {
-        toast.warning(`Conexão efetuada, mas algumas tabelas apresentaram erro:\n${errors.join('\n')}\nExecute o script SQL fornecido no painel do Supabase.`);
+        const isQuota = errors.some(e => e.includes('exceed_egress_quota') || e.includes('spend caps') || e.includes('restricted due to the following violations'));
+        if (isQuota) {
+          toast.error('O projeto Supabase atingiu o limite de transferência de dados mensal (exceed_egress_quota). O banco de dados e os produtos NÃO foram apagados e estão intactos. Para reativar o acesso em nuvem, acesse o painel do Supabase para desativar o Spend Cap/fazer upgrade, ou cadastre um novo projeto.', { duration: 10000 });
+        } else {
+          toast.warning(`Conexão efetuada, mas algumas tabelas apresentaram erro:\n${errors.join('\n')}\nExecute o script SQL fornecido no painel do Supabase.`);
+        }
       }
     } catch (err: any) {
       toast.error(`Erro ao conectar: ${err.message || 'Verifique as credenciais.'}`);
@@ -192,7 +236,7 @@ export default function SettingsModule() {
         if (error) syncErrors.push(`Fornecedores: ${error.message}`);
       }
 
-      // 3. Sync Products
+      // 3. Sync Products (ultra-lightweight without photos)
       if (products && products.length > 0) {
         const payload = products.map(p => ({
           id: toValidUUID(p.id),
@@ -203,7 +247,7 @@ export default function SettingsModule() {
           price: p.price,
           current_stock: p.currentStock,
           min_stock: p.minStock,
-          image: p.image || ''
+          image: stripBase64OnSync ? '' : (p.image || '')
         }));
         const { error } = await client.from('products').upsert(payload);
         if (error) syncErrors.push(`Produtos: ${error.message}`);
@@ -492,15 +536,34 @@ DO $$ BEGIN CREATE POLICY "Allow public read-write for purchase_orders" ON publi
     toast.success('Usuário criado com sucesso!');
   };
 
-  const handleAddBranch = (e: React.FormEvent) => {
+  const handleAddBranch = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newBranch.name || !newBranch.location || !newBranch.manager) {
+    if (!newBranch.name.trim() || !newBranch.location.trim() || !newBranch.manager.trim()) {
       toast.error('Preencha todos os campos obrigatórios da filial');
       return;
     }
-    addBranch(newBranch);
-    setNewBranch({ name: '', location: '', manager: '' });
-    toast.success('Filial criada com sucesso!');
+    setIsSavingBranch(true);
+    try {
+      const res = await addBranch(newBranch);
+      if (res.success) {
+        setNewBranch({ name: '', location: '', manager: '' });
+        toast.success('Filial criada e salva no banco de dados com sucesso!');
+      } else {
+        toast.error(`Erro ao salvar filial no banco: ${res.error || 'Verifique a conexão com o Supabase.'}`);
+      }
+    } finally {
+      setIsSavingBranch(false);
+    }
+  };
+
+  const handleRefreshBranchesFromDb = async () => {
+    setIsRefreshingBranches(true);
+    try {
+      await refreshData({ tables: ['branches'], force: true });
+      toast.success('Lista de filiais sincronizada com o banco de dados.');
+    } finally {
+      setIsRefreshingBranches(false);
+    }
   };
 
   const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -522,7 +585,15 @@ DO $$ BEGIN CREATE POLICY "Allow public read-write for purchase_orders" ON publi
         <p className="text-slate-500 font-medium">Gerencie usuários, identidade visual e parâmetros globais.</p>
       </div>
 
-      <Tabs defaultValue="general" className="w-full">
+      <Tabs
+        defaultValue="general"
+        className="w-full"
+        onValueChange={(value) => {
+          if (value === 'branches') {
+            refreshData({ tables: ['branches'], force: true });
+          }
+        }}
+      >
         <TabsList className="bg-white border border-slate-200 p-1 rounded-lg mb-6">
           <TabsTrigger value="general" className="rounded-lg px-6 flex gap-2">
             <ImageIcon size={16} /> Identidade
@@ -1107,20 +1178,36 @@ DO $$ BEGIN CREATE POLICY "Allow public read-write for purchase_orders" ON publi
                     />
                   </div>
 
-                  <Button type="submit" className="w-full bg-cyan-600 hover:bg-cyan-700 mt-4 text-white font-bold">
-                    Criar Filial
+                  <Button type="submit" disabled={isSavingBranch} className="w-full bg-cyan-600 hover:bg-cyan-700 mt-4 text-white font-bold">
+                    {isSavingBranch ? 'Salvando no Banco...' : 'Criar Filial'}
                   </Button>
                 </form>
               </CardContent>
             </Card>
 
             <Card className="lg:col-span-2 border-none shadow-sm">
-              <CardHeader className="flex flex-row items-center justify-between pb-4">
+              <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4">
                 <div>
-                  <CardTitle>Filiais Cadastradas</CardTitle>
-                  <CardDescription>Lista de todas as filiais atualmente registradas e ativas no sistema.</CardDescription>
+                  <div className="flex items-center gap-2">
+                    <CardTitle>Filiais Cadastradas</CardTitle>
+                    <Badge variant="outline" className="text-xs font-bold border-slate-200 text-slate-600">
+                      {branches.length} no banco
+                    </Badge>
+                  </div>
+                  <CardDescription>Lista sincronizada diretamente da tabela de filiais do Supabase.</CardDescription>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleRefreshBranchesFromDb}
+                    disabled={isRefreshingBranches}
+                    className="gap-1.5 text-xs font-semibold border-slate-200 text-slate-700 hover:bg-slate-50"
+                  >
+                    <RefreshCw size={14} className={isRefreshingBranches ? 'animate-spin text-cyan-600' : 'text-cyan-600'} />
+                    {isRefreshingBranches ? 'Atualizando...' : 'Atualizar do Banco'}
+                  </Button>
                   <ImportExcelModal type="branches" triggerText="Importar Excel" />
                   <ExportExcelModal
                     title="Exportar Cadastro de Filiais"
@@ -1171,9 +1258,13 @@ DO $$ BEGIN CREATE POLICY "Allow public read-write for purchase_orders" ON publi
                               variant="ghost"
                               size="icon"
                               className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 h-8 w-8"
-                              onClick={() => {
-                                deleteBranch(b.id);
-                                toast.success(`Filial "${b.name}" excluída com sucesso.`);
+                              onClick={async () => {
+                                const res = await deleteBranch(b.id);
+                                if (res.success) {
+                                  toast.success(`Filial "${b.name}" excluída do banco de dados com sucesso.`);
+                                } else {
+                                  toast.error(`Erro ao excluir filial no banco: ${res.error || 'Erro desconhecido'}`);
+                                }
                               }}
                             >
                               <Trash2 size={15} />
@@ -1181,12 +1272,19 @@ DO $$ BEGIN CREATE POLICY "Allow public read-write for purchase_orders" ON publi
                           </TableCell>
                         </TableRow>
                       ))}
+                      {branches.length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={4} className="text-center text-slate-400 py-8 italic">
+                            Nenhuma filial encontrada no banco de dados.
+                          </TableCell>
+                        </TableRow>
+                      )}
                     </TableBody>
                   </Table>
                 </div>
                 <Pagination
-                  currentPage={currentBranchesPage}
-                  totalPages={Math.ceil(branches.length / 15)}
+                  currentPage={safeBranchesPage}
+                  totalPages={totalBranchesPages}
                   onPageChange={setCurrentBranchesPage}
                   totalItems={branches.length}
                   itemsPerPage={15}
@@ -1320,6 +1418,88 @@ DO $$ BEGIN CREATE POLICY "Allow public read-write for purchase_orders" ON publi
                 )}
               </CardHeader>
               <CardContent className="space-y-6">
+                {/* Passo a passo para Novo Projeto */}
+                <div className="bg-gradient-to-r from-cyan-950/10 via-slate-50 to-blue-950/10 border border-cyan-500/30 rounded-xl p-5 space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                      <Sparkles size={18} className="text-cyan-600" />
+                      Como Migrar ou Jogar os Dados em um Novo Projeto Supabase (Em 5 Passos Rápidos):
+                    </h3>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleExportFullBackupJson}
+                      className="border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs shrink-0 shadow-xs"
+                    >
+                      <Download size={14} className="mr-1.5 text-cyan-600" />
+                      Baixar Backup de Segurança (JSON)
+                    </Button>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 pt-1">
+                    <div className="bg-white p-3 rounded-lg border border-slate-200 text-xs shadow-xs flex flex-col justify-between">
+                      <div>
+                        <div className="font-bold text-cyan-700 mb-1.5 flex items-center gap-1.5">
+                          <span className="w-5 h-5 rounded-full bg-cyan-100 text-cyan-800 flex items-center justify-center text-[11px] font-bold">1</span>
+                          Criar Projeto
+                        </div>
+                        <p className="text-slate-600 text-[11px] leading-relaxed">
+                          Acesse <a href="https://supabase.com" target="_blank" rel="noreferrer" className="text-cyan-600 underline font-semibold">supabase.com</a> e crie um novo projeto gratuito.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="bg-white p-3 rounded-lg border border-slate-200 text-xs shadow-xs flex flex-col justify-between">
+                      <div>
+                        <div className="font-bold text-cyan-700 mb-1.5 flex items-center gap-1.5">
+                          <span className="w-5 h-5 rounded-full bg-cyan-100 text-cyan-800 flex items-center justify-center text-[11px] font-bold">2</span>
+                          Rodar o SQL
+                        </div>
+                        <p className="text-slate-600 text-[11px] leading-relaxed">
+                          Copie o script no botão <strong>"Copiar SQL"</strong> abaixo, cole no <strong>SQL Editor</strong> do Supabase e clique em <strong>Run</strong>.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="bg-white p-3 rounded-lg border border-slate-200 text-xs shadow-xs flex flex-col justify-between">
+                      <div>
+                        <div className="font-bold text-cyan-700 mb-1.5 flex items-center gap-1.5">
+                          <span className="w-5 h-5 rounded-full bg-cyan-100 text-cyan-800 flex items-center justify-center text-[11px] font-bold">3</span>
+                          Pegar as Chaves
+                        </div>
+                        <p className="text-slate-600 text-[11px] leading-relaxed">
+                          No Supabase vá em <strong>Settings &gt; API</strong> e copie a <strong>Project URL</strong> e a <strong>anon public key</strong>.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="bg-white p-3 rounded-lg border border-slate-200 text-xs shadow-xs flex flex-col justify-between">
+                      <div>
+                        <div className="font-bold text-cyan-700 mb-1.5 flex items-center gap-1.5">
+                          <span className="w-5 h-5 rounded-full bg-cyan-100 text-cyan-800 flex items-center justify-center text-[11px] font-bold">4</span>
+                          Salvar Credenciais
+                        </div>
+                        <p className="text-slate-600 text-[11px] leading-relaxed">
+                          Cole nos campos abaixo e clique em <strong>"Salvar Credenciais"</strong> e depois em <strong>"Testar Conexão"</strong>.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="bg-emerald-50/90 p-3 rounded-lg border border-emerald-300 text-xs shadow-xs flex flex-col justify-between">
+                      <div>
+                        <div className="font-bold text-emerald-800 mb-1.5 flex items-center gap-1.5">
+                          <span className="w-5 h-5 rounded-full bg-emerald-200 text-emerald-900 flex items-center justify-center text-[11px] font-bold">5</span>
+                          Enviar os Dados
+                        </div>
+                        <p className="text-emerald-900 text-[11px] leading-relaxed font-medium">
+                          Clique em <strong>"Enviar Todos os Dados Locais para o Supabase"</strong>. Todos os seus dados serão carregados!
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 <form onSubmit={handleSaveSupabaseConfig} className="space-y-4 bg-slate-50 p-5 rounded-xl border border-slate-200">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
@@ -1344,8 +1524,23 @@ DO $$ BEGIN CREATE POLICY "Allow public read-write for purchase_orders" ON publi
                     </div>
                   </div>
 
+                  <div className="bg-amber-50/80 border border-amber-200 rounded-lg p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                    <label className="flex items-center gap-2.5 cursor-pointer text-xs font-semibold text-slate-800 select-none">
+                      <input 
+                        type="checkbox" 
+                        checked={stripBase64OnSync} 
+                        onChange={(e) => setStripBase64OnSync(e.target.checked)}
+                        className="w-4 h-4 rounded text-cyan-600 focus:ring-cyan-500 border-slate-300 cursor-pointer"
+                      />
+                      <span>Otimizar produtos para o Plano Gratuito (enviar sem fotos para economizar tráfego do banco)</span>
+                    </label>
+                    <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-300 text-[10px] shrink-0 font-bold">
+                      Recomendado para Plano Gratuito (0% de Egress)
+                    </Badge>
+                  </div>
+
                   <div className="flex flex-wrap items-center gap-3 pt-2">
-                    <Button type="submit" className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs">
+                    <Button type="submit" className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs shadow-xs">
                       <CheckCircle2 size={15} className="mr-1.5" /> Salvar Credenciais
                     </Button>
 
@@ -1363,7 +1558,7 @@ DO $$ BEGIN CREATE POLICY "Allow public read-write for purchase_orders" ON publi
                       variant="outline"
                       disabled={isSyncingSupabase}
                       onClick={handleSyncToSupabase}
-                      className="border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-xs"
+                      className="border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-xs shadow-xs"
                     >
                       <Database size={15} className="mr-1.5 text-emerald-600" />
                       {isSyncingSupabase ? 'Sincronizando...' : 'Enviar Todos os Dados Locais para o Supabase'}
